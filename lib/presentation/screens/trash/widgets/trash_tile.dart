@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:photo_manager/photo_manager.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/utils/date_utils.dart';
@@ -46,7 +47,6 @@ class _TrashTileState extends State<TrashTile>
 
   @override
   Widget build(BuildContext context) {
-    final path = widget.item.photo.thumbnailPath ?? widget.item.photo.localPath;
     final daysLeft = widget.item.daysUntilExpiry;
     final isExpiringSoon = daysLeft <= 3;
 
@@ -64,7 +64,7 @@ class _TrashTileState extends State<TrashTile>
             borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withAlpha(25),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -83,33 +83,32 @@ class _TrashTileState extends State<TrashTile>
                         color: AppColors.shimmerHighlight, size: 32),
                   ),
                 ),
-                // 实际照片
-                if (path != null)
-                  FutureBuilder<bool>(
-                    future: File(path).exists(),
-                    builder: (context, snapshot) {
-                      if (snapshot.data == true) {
-                        return Image.file(
-                          File(path),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: AppColors.shimmerBase,
-                            child: const Center(
-                              child: Icon(Icons.broken_image,
-                                  color: AppColors.shimmerHighlight, size: 32),
-                            ),
+                // 实际照片 - 用缩略图 API，不加载原图
+                FutureBuilder<Uint8List?>(
+                  future: _getThumbnail(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData && snapshot.data != null) {
+                      return Image.memory(
+                        snapshot.data!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: AppColors.shimmerBase,
+                          child: const Center(
+                            child: Icon(Icons.broken_image,
+                                color: AppColors.shimmerHighlight, size: 32),
                           ),
-                        );
-                      }
-                      return Container(
-                        color: AppColors.shimmerBase,
-                        child: const Center(
-                          child: Icon(Icons.image_not_supported,
-                              color: AppColors.shimmerHighlight, size: 32),
                         ),
                       );
-                    },
-                  ),
+                    }
+                    return Container(
+                      color: AppColors.shimmerBase,
+                      child: const Center(
+                        child: Icon(Icons.image_not_supported,
+                            color: AppColors.shimmerHighlight, size: 32),
+                      ),
+                    );
+                  },
+                ),
                 // 底部渐变+信息
                 Positioned(
                   bottom: 0,
@@ -194,6 +193,19 @@ class _TrashTileState extends State<TrashTile>
     );
   }
 
+  Future<Uint8List?> _getThumbnail() async {
+    try {
+      final asset = await AssetEntity.fromId(widget.item.photo.assetId);
+      if (asset == null) return null;
+      return await asset.thumbnailDataWithSize(
+        const ThumbnailSize.square(300),
+      );
+    } catch (e) {
+      debugPrint('Error loading thumbnail: $e');
+      return null;
+    }
+  }
+
   void _showOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -219,7 +231,7 @@ class _TrashTileState extends State<TrashTile>
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: AppColors.primary.withAlpha(25),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.restore, color: AppColors.primary),
@@ -236,7 +248,7 @@ class _TrashTileState extends State<TrashTile>
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.error.withOpacity(0.1),
+                    color: AppColors.error.withAlpha(25),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child:

@@ -189,7 +189,7 @@ class _TrajectoryPainter extends CustomPainter {
         const Color(0xFFFF1744),
         progress,
       )!
-          .withOpacity(0.7)
+          .withValues(alpha: 0.7)
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -218,7 +218,7 @@ class _TrajectoryPainter extends CustomPainter {
     canvas.drawCircle(
       end,
       progress > 0.5 ? 12 : 8,
-      paint..style = PaintingStyle.fill..color = paint.color.withOpacity(0.5),
+      paint..style = PaintingStyle.fill..color = paint.color.withValues(alpha: 0.5),
     );
   }
 

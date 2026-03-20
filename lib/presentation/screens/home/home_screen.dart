@@ -29,11 +29,26 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   static const _uuid = Uuid();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _loadInitialData();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 500) {
+      context.read<PhotoProvider>().loadMore();
+    }
   }
 
   Future<void> _loadInitialData() async {
@@ -62,67 +77,40 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncFromGallery() async {
     final photoProvider = context.read<PhotoProvider>();
     try {
-      // 获取所有相册，按创建时间倒序
-      final albums = await PhotoManager.getAssetPathList(onlyAll: true);
-      if (albums.isEmpty) return;
-
-      // 从数据库获取已存在的 assetId（比内存更准确）
-      final existingAssetIds = await photoProvider.getAllAssetIds();
-
-      // 分批加载，每批 100 张，直到全部加载完
-      int start = 0;
-      const batchSize = 100;
-      int newCount = 0;
-
-      while (true) {
-        final assets = await albums.first
-            .getAssetListRange(start: start, end: start + batchSize);
-        if (assets.isEmpty) break;
-
-        for (final asset in assets) {
-          // 跳过已存在的
-          if (existingAssetIds.contains(asset.id)) continue;
-
-          // 获取文件，优先用 file，再用 originFile
-          File? file = await asset.file;
-          file ??= await asset.originFile;
-          
-          if (file == null) continue;
-
-          // 检查文件是否存在，临时文件可能被删除
-          if (!await file.exists()) {
-            debugPrint('File not found: ${file.path}');
-            continue;
-          }
-
-          final fileSize = await file.length();
-          if (fileSize <= 0) continue;
-
-          final photo = PhotoModel(
-            id: _uuid.v4(),
-            assetId: asset.id,
-            localPath: file.path,
-            thumbnailPath: file.path,
-            addedAt: asset.createDateTime ?? DateTime.now(),
-            takenAt: asset.createDateTime,
-            width: asset.width,
-            height: asset.height,
-            fileSize: fileSize,
-            sourceType: 'gallery',
-          );
-          await photoProvider.addPhoto(photo);
-          existingAssetIds.add(asset.id);
-          newCount++;
-        }
-
-        if (assets.length < batchSize) break;
-        start += batchSize;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                ),
+                SizedBox(width: 16),
+                Text('正在同步相册...'),
+              ],
+            ),
+            duration: Duration(seconds: 60),
+          ),
+        );
       }
 
+      // 直接在主线程执行（photo_manager 不支持后台 Isolate）
+      final existingAssetIds = await photoProvider.getAllAssetIds();
+      final newPhotoMaps = await _fetchNewPhotosMainThread(existingAssetIds);
+
+      if (newPhotoMaps.isNotEmpty) {
+        await photoProvider.addPhotosBatch(newPhotoMaps);
+      }
+
+      await photoProvider.loadPhotos();
+
       if (mounted) {
-        if (newCount > 0) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        if (newPhotoMaps.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已同步 $newCount 张新照片')),
+            SnackBar(content: Text('已同步 \${newPhotoMaps.length} 张新照片')),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -133,13 +121,52 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Sync error: \$e');
+      debugPrint('Sync error: $e');
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('同步失败: \$e')),
+          SnackBar(content: Text('同步失败: $e')),
         );
       }
     }
+  }
+
+  /// 在主线程中从相册获取新照片
+  Future<List<Map<String, dynamic>>> _fetchNewPhotosMainThread(Set<String> existingAssetIds) async {
+    final newPhotos = <Map<String, dynamic>>[];
+    try {
+      final albums = await PhotoManager.getAssetPathList(onlyAll: true);
+      if (albums.isEmpty) return [];
+
+      const batchSize = 100;
+      int start = 0;
+
+      while (true) {
+        final assets = await albums.first.getAssetListRange(
+          start: start,
+          end: start + batchSize,
+        );
+        if (assets.isEmpty) break;
+
+        for (final asset in assets) {
+          if (existingAssetIds.contains(asset.id)) continue;
+          newPhotos.add({
+            'id': _uuid.v4(),
+            'assetId': asset.id,
+            'addedAt': (asset.createDateTime ?? DateTime.now()).millisecondsSinceEpoch,
+            'takenAt': asset.createDateTime?.millisecondsSinceEpoch,
+            'width': asset.width,
+            'height': asset.height,
+          });
+        }
+
+        if (assets.length < batchSize) break;
+        start += batchSize;
+      }
+    } catch (e) {
+      debugPrint('Fetch photos error: $e');
+    }
+    return newPhotos;
   }
 
   /// 刷新按钮：重新同步相册
@@ -365,19 +392,30 @@ class _HomeScreenState extends State<HomeScreen> {
         return RefreshIndicator(
           onRefresh: _importFromGallery,
           child: GridView.builder(
+            controller: _scrollController,
             padding: const EdgeInsets.all(AppSpacing.gridSpacing),
+            // 只预加载当前屏幕上下各一屏的内容，减少内存占用
+            cacheExtent: MediaQuery.of(context).size.height,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: _getCrossAxisCount(context),
               mainAxisSpacing: AppSpacing.gridSpacing,
               crossAxisSpacing: AppSpacing.gridSpacing,
             ),
-            itemCount: photoProvider.photos.length,
+            itemCount: photoProvider.photos.length + (photoProvider.hasMore ? 1 : 0),
             itemBuilder: (context, index) {
+              if (index >= photoProvider.photos.length) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
               final photo = photoProvider.photos[index];
               return SwipeToDeleteDetector(
                 onDeleted: () => _moveToTrash(photo),
                 child: PhotoTile(
-                  thumbnailPath: photo.thumbnailPath,
+                  assetId: photo.assetId,
                   onTap: () => _viewPhoto(photo),
                   onLongPress: () => _moveToTrash(photo),
                 ),
@@ -410,10 +448,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 vertical: AppSpacing.sm,
               ),
               decoration: BoxDecoration(
-                color: AppColors.accent.withOpacity(0.08),
+                color: AppColors.accent.withValues(alpha: 0.08),
                 border: Border(
                   bottom: BorderSide(
-                    color: AppColors.accent.withOpacity(0.15),
+                    color: AppColors.accent.withValues(alpha: 0.15),
                     width: 1,
                   ),
                 ),
@@ -423,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icon(
                     Icons.info_outline,
                     size: 14,
-                    color: AppColors.accent.withOpacity(0.7),
+                    color: AppColors.accent.withValues(alpha: 0.7),
                   ),
                   const SizedBox(width: 6),
                   const Expanded(
@@ -610,3 +648,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+

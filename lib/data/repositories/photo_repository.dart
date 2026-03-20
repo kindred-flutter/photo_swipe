@@ -5,10 +5,21 @@ import '../datasources/local_database.dart';
 class PhotoRepository {
   final LocalDatabase _db = LocalDatabase.instance;
 
-  Future<List<PhotoModel>> getAllPhotos() async {
+  /// 获取照片（支持分页）
+  Future<List<PhotoModel>> getPhotos({int limit = 50, int offset = 0}) async {
     final database = await _db.database;
-    final maps = await database.query('photos', orderBy: 'added_at DESC');
+    final maps = await database.query(
+      'photos',
+      orderBy: 'added_at DESC',
+      limit: limit,
+      offset: offset,
+    );
     return maps.map((map) => PhotoModel.fromMap(map)).toList();
+  }
+
+  /// 获取所有照片（用于兼容旧代码）
+  Future<List<PhotoModel>> getAllPhotos() async {
+    return await getPhotos(limit: 100000, offset: 0);
   }
 
   Future<PhotoModel?> getPhotoById(String id) async {
@@ -50,5 +61,34 @@ class PhotoRepository {
     final database = await _db.database;
     final result = await database.rawQuery('SELECT SUM(file_size) as total FROM photos');
     return (result.first['total'] as int?) ?? 0;
+  }
+
+  /// 批量插入照片
+  Future<void> addPhotosBatch(List<Map<String, dynamic>> photoMaps) async {
+    if (photoMaps.isEmpty) return;
+    
+    final database = await _db.database;
+    final batch = database.batch();
+    
+    for (final map in photoMaps) {
+      batch.insert(
+        'photos',
+        {
+          'id': map['id'] as String,
+          'asset_id': map['assetId'] as String,
+          'local_path': null,
+          'thumbnail_path': null,
+          'added_at': map['addedAt'] as int,
+          'taken_at': map['takenAt'] as int?,
+          'width': map['width'] as int,
+          'height': map['height'] as int,
+          'file_size': 0,
+          'source_type': 'gallery',
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+    
+    await batch.commit(noResult: true);
   }
 }

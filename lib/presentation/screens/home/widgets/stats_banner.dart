@@ -27,7 +27,7 @@ class StatsBanner extends StatelessWidget {
           colors: isDark
               ? [
                   AppColors.surfaceDark,
-                  AppColors.surfaceDark.withOpacity(0.8),
+                  AppColors.surfaceDark.withValues(alpha: 0.8),
                 ]
               : [
                   AppColors.primaryContainer,
@@ -41,7 +41,7 @@ class StatsBanner extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: (isDark ? AppColors.primary : AppColors.primary)
-                .withOpacity(0.1),
+                .withValues(alpha: 0.1),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -106,7 +106,7 @@ class _StatItem extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
+            color: color.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
