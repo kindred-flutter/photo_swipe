@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/models/trash_item_model.dart';
 import '../../data/repositories/trash_repository.dart';
+import '../../services/photo_manager_service.dart';
 
 class TrashProvider extends ChangeNotifier {
   final TrashRepository _repository = TrashRepository();
@@ -45,6 +46,10 @@ class TrashProvider extends ChangeNotifier {
 
   Future<void> permanentDelete(String id) async {
     try {
+      final item = _items.firstWhere((i) => i.id == id);
+      if (item.photo.assetId.isNotEmpty) {
+        await PhotoManagerService.deletePermanently([item.photo.assetId]);
+      }
       await _repository.permanentDelete(id);
       _items.removeWhere((item) => item.id == id);
       notifyListeners();
@@ -53,8 +58,19 @@ class TrashProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> emptyTrash() async {
+  Future<void> emptyTrash({required bool moveToSystemTrash}) async {
     try {
+      final assetIds = _items
+          .where((item) => item.photo.assetId.isNotEmpty)
+          .map((item) => item.photo.assetId)
+          .toList();
+
+      if (moveToSystemTrash && assetIds.isNotEmpty) {
+        await PhotoManagerService.moveToSystemTrash(assetIds);
+      } else if (!moveToSystemTrash && assetIds.isNotEmpty) {
+        await PhotoManagerService.deletePermanently(assetIds);
+      }
+
       await _repository.emptyTrash();
       _items.clear();
       notifyListeners();

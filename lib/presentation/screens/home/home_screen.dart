@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:io';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_strings.dart';
@@ -11,9 +12,11 @@ import '../../providers/photo_provider.dart';
 import '../../providers/stats_provider.dart';
 import '../../providers/trash_provider.dart';
 import '../../widgets/gestures/swipe_to_delete_detector.dart';
+import '../../widgets/common/glassmorphic_container.dart';
 import '../photo_viewer/photo_viewer_screen.dart';
 import 'widgets/stats_banner.dart';
 import 'widgets/photo_tile.dart';
+import '../trash/widgets/trash_tile.dart';
 import '../../widgets/common/empty_state.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -59,12 +62,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncFromGallery() async {
     final photoProvider = context.read<PhotoProvider>();
     try {
-      final albums = await PhotoManager.getAssetPathList(
-        onlyAll: true,
-        filterOption: FilterOptionGroup(
-          orders: [const OrderOption(type: OrderOptionType.createDate, asc: false)],
-        ),
-      );
+      // 获取所有相册，按创建时间倒序
+      final albums = await PhotoManager.getAssetPathList(onlyAll: true);
       if (albums.isEmpty) return;
 
       // 从数据库获取已存在的 assetId（比内存更准确）
@@ -84,8 +83,20 @@ class _HomeScreenState extends State<HomeScreen> {
           // 跳过已存在的
           if (existingAssetIds.contains(asset.id)) continue;
 
-          final file = await asset.originFile;
+          // 获取文件，优先用 file，再用 originFile
+          File? file = await asset.file;
+          file ??= await asset.originFile;
+          
           if (file == null) continue;
+
+          // 检查文件是否存在，临时文件可能被删除
+          if (!await file.exists()) {
+            debugPrint('File not found: ${file.path}');
+            continue;
+          }
+
+          final fileSize = await file.length();
+          if (fileSize <= 0) continue;
 
           final photo = PhotoModel(
             id: _uuid.v4(),
@@ -96,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
             takenAt: asset.createDateTime,
             width: asset.width,
             height: asset.height,
-            fileSize: await file.length(),
+            fileSize: fileSize,
             sourceType: 'gallery',
           );
           await photoProvider.addPhoto(photo);
@@ -109,7 +120,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (mounted) {
-        await context.read<StatsProvider>().loadStats();
         if (newCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('已同步 $newCount 张新照片')),
@@ -163,11 +173,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _moveToTrash(PhotoModel photo) async {
     final trashProvider = context.read<TrashProvider>();
     final photoProvider = context.read<PhotoProvider>();
-    final statsProvider = context.read<StatsProvider>();
+
+    // 先创建垃圾箱项目（此时照片还在 photos 表中）
     final trashItem = TrashItemModel.create(id: _uuid.v4(), photo: photo);
     await trashProvider.addToTrash(trashItem);
+
+    // 再从主相册删除照片
     await photoProvider.deletePhoto(photo.id);
-    await statsProvider.loadStats();
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -176,9 +189,9 @@ class _HomeScreenState extends State<HomeScreen> {
         action: SnackBarAction(
           label: AppStrings.undoAction,
           onPressed: () async {
-            await trashProvider.restoreFromTrash(trashItem.id);
+            // 撤销：先恢复照片到主相册，再从垃圾箱删除
             await photoProvider.addPhoto(photo);
-            await statsProvider.loadStats();
+            await trashProvider.restoreFromTrash(trashItem.id);
           },
         ),
       ),
@@ -249,7 +262,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.pop(context);
                 await context.read<TrashProvider>().restoreFromTrash(item.id);
                 await context.read<PhotoProvider>().addPhoto(item.photo);
-                await context.read<StatsProvider>().loadStats();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text(AppStrings.restoredToAlbum)),
@@ -277,7 +289,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: () async {
                           Navigator.pop(context);
                           await context.read<TrashProvider>().permanentDelete(item.id);
-                          await context.read<StatsProvider>().loadStats();
                         },
                         child: const Text(AppStrings.delete),
                       ),
@@ -300,10 +311,14 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         actions: [
           if (_selectedIndex == 0)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _importFromGallery,
-              tooltip: '刷新相册',
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: IconButton(
+                icon: const Icon(Icons.refresh_rounded),
+                onPressed: _importFromGallery,
+                tooltip: '刷新相册',
+                splashRadius: 24,
+              ),
             ),
         ],
       ),
@@ -321,34 +336,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() => _selectedIndex = index);
-          if (index == 1) context.read<TrashProvider>().loadTrashItems();
-        },
-        items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.photo_library_outlined),
-            activeIcon: Icon(Icons.photo_library),
-            label: AppStrings.tabPhotos,
-          ),
-          BottomNavigationBarItem(
-            icon: Consumer<TrashProvider>(
-              builder: (context, trash, _) => Badge(
-                isLabelVisible: trash.items.isNotEmpty,
-                label: Text('${trash.items.length}'),
-                child: const Icon(Icons.delete_outline),
-              ),
-            ),
-            label: AppStrings.tabTrash,
-          ),
-        ],
-      ),
+      bottomNavigationBar: _buildGlassBottomNav(context),
       floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
               onPressed: _showAddPhotoOptions,
-              child: const Icon(Icons.add_photo_alternate),
+              icon: const Icon(Icons.add_photo_alternate),
+              label: const Text('添加'),
+              elevation: 8,
             )
           : null,
     );
@@ -415,18 +409,42 @@ class _HomeScreenState extends State<HomeScreen> {
                 horizontal: AppSpacing.md,
                 vertical: AppSpacing.sm,
               ),
-              color: AppColors.primaryContainer,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withOpacity(0.08),
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.accent.withOpacity(0.15),
+                    width: 1,
+                  ),
+                ),
+              ),
               child: Row(
                 children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 14,
+                    color: AppColors.accent.withOpacity(0.7),
+                  ),
+                  const SizedBox(width: 6),
                   const Expanded(
-                    child: Text(AppStrings.trashHint,
-                        style: TextStyle(fontSize: 12)),
+                    child: Text(
+                      AppStrings.trashHint,
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
                   TextButton(
                     onPressed: () => _showClearTrashDialog(context),
-                    child: const Text(AppStrings.trashClear,
-                        style: TextStyle(
-                            color: AppColors.error, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      AppStrings.trashClear,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ],
               ),
@@ -442,10 +460,40 @@ class _HomeScreenState extends State<HomeScreen> {
                 itemCount: trashProvider.items.length,
                 itemBuilder: (context, index) {
                   final item = trashProvider.items[index];
-                  return PhotoTile(
-                    thumbnailPath: item.photo.thumbnailPath,
-                    onTap: () => _showTrashItemOptions(context, item),
-                    onLongPress: () => _showTrashItemOptions(context, item),
+                  return TrashTile(
+                    item: item,
+                    onRestore: () async {
+                      await context.read<TrashProvider>().restoreFromTrash(item.id);
+                      await context.read<PhotoProvider>().addPhoto(item.photo);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text(AppStrings.restoredToAlbum)),
+                        );
+                      }
+                    },
+                    onDelete: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text(AppStrings.permanentDelete),
+                          content: const Text(AppStrings.permanentDeleteConfirm),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text(AppStrings.cancel),
+                            ),
+                            TextButton(
+                              style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                await context.read<TrashProvider>().permanentDelete(item.id);
+                              },
+                              child: const Text(AppStrings.delete),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -454,6 +502,71 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _buildGlassBottomNav(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isIOS = Platform.isIOS;
+
+    final navBar = BottomNavigationBar(
+      currentIndex: _selectedIndex,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      onTap: (index) {
+        setState(() => _selectedIndex = index);
+        if (index == 1) context.read<TrashProvider>().loadTrashItems();
+      },
+      items: [
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.photo_library_outlined),
+          activeIcon: Icon(Icons.photo_library),
+          label: AppStrings.tabPhotos,
+        ),
+        BottomNavigationBarItem(
+          icon: Consumer<TrashProvider>(
+            builder: (context, trash, _) => Badge(
+              isLabelVisible: trash.items.isNotEmpty,
+              label: Text('\${trash.items.length}'),
+              child: const Icon(Icons.delete_outline),
+            ),
+          ),
+          label: AppStrings.tabTrash,
+        ),
+      ],
+    );
+
+    if (!isIOS) {
+      // 非 iOS 平台使用普通底部导航栏
+      return BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() => _selectedIndex = index);
+          if (index == 1) context.read<TrashProvider>().loadTrashItems();
+        },
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.photo_library_outlined),
+            activeIcon: Icon(Icons.photo_library),
+            label: AppStrings.tabPhotos,
+          ),
+          BottomNavigationBarItem(
+            icon: Consumer<TrashProvider>(
+              builder: (context, trash, _) => Badge(
+                isLabelVisible: trash.items.isNotEmpty,
+                label: Text('\${trash.items.length}'),
+                child: const Icon(Icons.delete_outline),
+              ),
+            ),
+            label: AppStrings.tabTrash,
+          ),
+        ],
+      );
+    }
+
+    // iOS 毛玻璃底部导航栏
+    return isDark
+        ? GlassmorphicStyle.darkNavBar(child: navBar)
+        : GlassmorphicStyle.lightNavBar(child: navBar);
   }
 
   void _showClearTrashDialog(BuildContext context) {
@@ -471,8 +584,24 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
             onPressed: () async {
               Navigator.pop(context);
-              await context.read<TrashProvider>().emptyTrash();
-              await context.read<StatsProvider>().loadStats();
+              await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: false);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已永久删除')),
+                );
+              }
+            },
+            child: const Text(AppStrings.trashDeleteDirectly),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: true);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已移入系统垃圾箱')),
+                );
+              }
             },
             child: const Text(AppStrings.trashClearConfirmBtn),
           ),

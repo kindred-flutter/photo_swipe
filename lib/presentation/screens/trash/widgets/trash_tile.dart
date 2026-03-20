@@ -1,10 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/utils/date_utils.dart';
+import '../../../../data/models/trash_item_model.dart';
 
-class TrashTile extends StatelessWidget {
-  final dynamic item;
+class TrashTile extends StatefulWidget {
+  final TrashItemModel item;
   final VoidCallback onRestore;
   final VoidCallback onDelete;
 
@@ -16,60 +18,177 @@ class TrashTile extends StatelessWidget {
   });
 
   @override
+  State<TrashTile> createState() => _TrashTileState();
+}
+
+class _TrashTileState extends State<TrashTile>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 180),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.94).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final path = widget.item.photo.thumbnailPath ?? widget.item.photo.localPath;
+    final daysLeft = widget.item.daysUntilExpiry;
+    final isExpiringSoon = daysLeft <= 3;
+
     return GestureDetector(
-      onLongPress: () => _showOptions(context),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
-          color: AppColors.shimmerBase,
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 占位符
-            Container(
-              color: AppColors.shimmerBase,
-              child: const Center(
-                child: Icon(Icons.image, color: AppColors.shimmerHighlight),
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        _showOptions(context);
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
-            ),
-            // 删除时间标签
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(AppSpacing.radiusTile),
-                    bottomRight: Radius.circular(AppSpacing.radiusTile),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 背景占位
+                Container(
+                  color: AppColors.shimmerBase,
+                  child: const Center(
+                    child: Icon(Icons.image,
+                        color: AppColors.shimmerHighlight, size: 32),
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppDateUtils.formatRelative(item.deletedAt),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
+                // 实际照片
+                if (path != null)
+                  FutureBuilder<bool>(
+                    future: File(path).exists(),
+                    builder: (context, snapshot) {
+                      if (snapshot.data == true) {
+                        return Image.file(
+                          File(path),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: AppColors.shimmerBase,
+                            child: const Center(
+                              child: Icon(Icons.broken_image,
+                                  color: AppColors.shimmerHighlight, size: 32),
+                            ),
+                          ),
+                        );
+                      }
+                      return Container(
+                        color: AppColors.shimmerBase,
+                        child: const Center(
+                          child: Icon(Icons.image_not_supported,
+                              color: AppColors.shimmerHighlight, size: 32),
+                        ),
+                      );
+                    },
+                  ),
+                // 底部渐变+信息
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 6),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [Colors.black87, Colors.transparent],
                       ),
                     ),
-                    Text(
-                      AppDateUtils.formatExpiry(item.expireAt),
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 9,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          AppDateUtils.formatRelative(widget.item.deletedAt),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.timer_outlined,
+                              size: 9,
+                              color: isExpiringSoon
+                                  ? Colors.orange
+                                  : Colors.white60,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '$daysLeft天后删除',
+                              style: TextStyle(
+                                color: isExpiringSoon
+                                    ? Colors.orange
+                                    : Colors.white60,
+                                fontSize: 9,
+                                fontWeight: isExpiringSoon
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                // 即将到期标记
+                if (isExpiringSoon)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        '即将删除',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -78,28 +197,61 @@ class TrashTile extends StatelessWidget {
   void _showOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.restore),
-              title: const Text('恢复'),
-              onTap: () {
-                Navigator.pop(context);
-                onRestore();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: AppColors.error),
-              title: const Text('永久删除'),
-              onTap: () {
-                Navigator.pop(context);
-                onDelete();
-              },
-            ),
-          ],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.restore, color: AppColors.primary),
+                ),
+                title: const Text('恢复到相册',
+                    style: TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: const Text('照片将回到主相册'),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onRestore();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child:
+                      const Icon(Icons.delete_forever, color: AppColors.error),
+                ),
+                title: const Text('永久删除',
+                    style: TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: const Text('此操作不可撤销'),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onDelete();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

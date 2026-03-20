@@ -104,9 +104,17 @@ class _TrashScreenState extends State<TrashScreen> {
             child: const Text(AppStrings.cancel),
           ),
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
             onPressed: () {
               Navigator.pop(context);
-              _clearTrash(context);
+              _clearTrash(context, moveToSystemTrash: false);
+            },
+            child: const Text(AppStrings.trashDeleteDirectly),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _clearTrash(context, moveToSystemTrash: true);
             },
             child: const Text(AppStrings.trashClearConfirmBtn),
           ),
@@ -115,13 +123,13 @@ class _TrashScreenState extends State<TrashScreen> {
     );
   }
 
-  Future<void> _clearTrash(BuildContext context) async {
+  Future<void> _clearTrash(BuildContext context, {required bool moveToSystemTrash}) async {
     try {
-      await context.read<TrashProvider>().emptyTrash();
+      await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: moveToSystemTrash);
       await context.read<StatsProvider>().loadStats();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('垃圾箱已清空')),
+          SnackBar(content: Text(moveToSystemTrash ? '已移入系统垃圾箱' : '已永久删除')),
         );
       }
     } catch (e) {

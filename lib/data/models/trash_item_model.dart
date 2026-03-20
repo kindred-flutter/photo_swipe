@@ -38,6 +38,14 @@ class TrashItemModel {
     return {
       'id': id,
       'photo_id': photo.id,
+      'asset_id': photo.assetId,
+      'local_path': photo.localPath,
+      'thumbnail_path': photo.thumbnailPath,
+      'photo_added_at': photo.addedAt.millisecondsSinceEpoch,
+      'taken_at': photo.takenAt?.millisecondsSinceEpoch,
+      'width': photo.width,
+      'height': photo.height,
+      'file_size': photo.fileSize,
       'deleted_at': deletedAt.millisecondsSinceEpoch,
       'expire_at': expireAt.millisecondsSinceEpoch,
     };

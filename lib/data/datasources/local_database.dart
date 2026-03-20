@@ -25,8 +25,9 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -50,15 +51,46 @@ class LocalDatabase {
       CREATE INDEX idx_photos_asset_id ON photos(asset_id)
     ''');
 
+    // trash_items 存储完整照片信息，不依赖 photos 表
     await db.execute('''
       CREATE TABLE trash_items (
         id TEXT PRIMARY KEY,
         photo_id TEXT,
+        asset_id TEXT,
+        local_path TEXT,
+        thumbnail_path TEXT,
+        photo_added_at INTEGER,
+        taken_at INTEGER,
+        width INTEGER,
+        height INTEGER,
+        file_size INTEGER,
         deleted_at INTEGER,
-        expire_at INTEGER,
-        FOREIGN KEY (photo_id) REFERENCES photos(id)
+        expire_at INTEGER
       )
     ''');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // 删除旧表重建
+      await db.execute('DROP TABLE IF EXISTS trash_items');
+      await db.execute('''
+        CREATE TABLE trash_items (
+          id TEXT PRIMARY KEY,
+          photo_id TEXT,
+          asset_id TEXT,
+          local_path TEXT,
+          thumbnail_path TEXT,
+          photo_added_at INTEGER,
+          taken_at INTEGER,
+          width INTEGER,
+          height INTEGER,
+          file_size INTEGER,
+          deleted_at INTEGER,
+          expire_at INTEGER
+        )
+      ''');
+    }
   }
 
   Future<void> init() async {

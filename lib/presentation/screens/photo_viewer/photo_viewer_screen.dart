@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui';
 import '../../../data/models/photo_model.dart';
 import '../../../core/utils/date_utils.dart';
 import 'widgets/photo_info_panel.dart';
@@ -191,6 +192,32 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     }
   }
 
+  Widget _buildHintRow() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.swipe, size: 14, color: Colors.white.withAlpha(178)),
+        const SizedBox(width: 6),
+        Text(
+          '左右滑动浏览',
+          style: TextStyle(color: Colors.white.withAlpha(178), fontSize: 12),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          width: 1,
+          height: 12,
+          color: Colors.white.withAlpha(64),
+        ),
+        Icon(Icons.north_east, size: 14, color: Colors.white.withAlpha(178)),
+        const SizedBox(width: 6),
+        Text(
+          '右上划移入垃圾箱',
+          style: TextStyle(color: Colors.white.withAlpha(178), fontSize: 12),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final progress = _gestureProgress;
@@ -201,15 +228,51 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black.withOpacity(0.6),
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.75),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(
-          '${_currentIndex + 1} / ${_photos.length}',
-          style: const TextStyle(color: Colors.white, fontSize: 16),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${_currentIndex + 1} / ${_photos.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.white),
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: Icon(
+                _showInfo ? Icons.info : Icons.info_outline,
+                key: ValueKey(_showInfo),
+                color: _showInfo ? const Color(0xFF5B7FFF) : Colors.white,
+              ),
+            ),
             onPressed: () => setState(() => _showInfo = !_showInfo),
           ),
           // 垃圾箱图标（飞行动画的目标）
@@ -221,24 +284,27 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                 padding: const EdgeInsets.only(right: 12),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: _trashGlowing
-                        ? Colors.red.withOpacity(0.85)
-                        : Colors.transparent,
+                        ? const Color(0xFFE63946).withOpacity(0.9)
+                        : Colors.white.withOpacity(0.15),
                     boxShadow: _trashGlowing
-                        ? [BoxShadow(
-                            color: Colors.red.withOpacity(0.6),
-                            blurRadius: 18,
-                            spreadRadius: 4,
-                          )]
+                        ? [
+                            BoxShadow(
+                              color:
+                                  const Color(0xFFE63946).withOpacity(0.6),
+                              blurRadius: 20,
+                              spreadRadius: 4,
+                            )
+                          ]
                         : [],
                   ),
                   child: Icon(
                     _trashGlowing ? Icons.delete : Icons.delete_outline,
-                    color: _trashGlowing ? Colors.white : Colors.white70,
-                    size: 26,
+                    color: Colors.white,
+                    size: 22,
                   ),
                 ),
               ),
@@ -385,25 +451,46 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                 },
               ),
 
-            // 底部操作提示
+            // 底部操作提示（毛玻璃风格，仅 iOS）
             if (!_isDragging && !_isAnimating)
               Positioned(
-                bottom: 36,
+                bottom: 48,
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      '← → 滑动浏览  ·  左下↗右上 移入垃圾箱',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ),
+                  child: Platform.isIOS
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.2),
+                                  width: 1,
+                                ),
+                              ),
+                              child: _buildHintRow(),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.1),
+                              width: 1,
+                            ),
+                          ),
+                          child: _buildHintRow(),
+                        ),
                 ),
               ),
 

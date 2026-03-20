@@ -26,7 +26,13 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => PhotoProvider()),
         ChangeNotifierProvider(create: (_) => TrashProvider()),
-        ChangeNotifierProvider(create: (_) => StatsProvider()),
+        ChangeNotifierProxyProvider2<PhotoProvider, TrashProvider, StatsProvider>(
+          create: (_) => StatsProvider(),
+          update: (_, photoProvider, trashProvider, statsProvider) {
+            statsProvider!.bindProviders(photoProvider, trashProvider);
+            return statsProvider;
+          },
+        ),
       ],
       child: const PhotoSwipeApp(),
     ),

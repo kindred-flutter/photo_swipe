@@ -23,8 +23,10 @@ class AppStrings {
   static const String trashEmpty = '垃圾箱是空的';
   static const String trashHint = '照片将在 30 天后自动清理';
   static const String trashClear = '清空垃圾箱';
-  static const String trashClearConfirm = '确定清空？照片将移入系统相册垃圾箱';
-  static const String trashClearConfirmBtn = '清空';
+  static const String trashClearConfirm = '照片将移入系统相册垃圾箱，30天后自动删除';
+  static const String trashClearConfirmBtn = '移入系统垃圾箱';
+  static const String trashDeleteDirectly = '直接删除';
+  static const String trashDeleteDirectlyConfirm = '照片将永久删除，不可恢复';
 
   // 操作
   static const String restore = '恢复';
