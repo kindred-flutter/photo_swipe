@@ -42,6 +42,7 @@ class _ThumbnailCache {
 
 class PhotoTile extends StatefulWidget {
   final String assetId;
+  final String mediaType;
   final VoidCallback onTap;
   final VoidCallback? onDeleteHoldComplete;
   final bool isSelected;
@@ -49,6 +50,7 @@ class PhotoTile extends StatefulWidget {
   const PhotoTile({
     super.key,
     required this.assetId,
+    required this.mediaType,
     required this.onTap,
     this.onDeleteHoldComplete,
     this.isSelected = false,
@@ -262,6 +264,40 @@ class _PhotoTileState extends State<PhotoTile>
                         fit: StackFit.expand,
                         children: [
                           _buildImage(),
+                          if (widget.mediaType == 'video' || widget.mediaType == 'live')
+                            Positioned(
+                              right: 8,
+                              bottom: 8,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      widget.mediaType == 'live' ? '实况' : '动态',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           if (deleteProgress > 0 || fadeProgress > 0)
                             Positioned.fill(
                               child: IgnorePointer(

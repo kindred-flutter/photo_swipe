@@ -82,7 +82,12 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // 直接在主线程执行（photo_manager 不支持后台 Isolate）
       final existingAssetIds = await photoProvider.getAllAssetIds();
+      final mediaTypeBackfill = await _backfillExistingMediaTypes(existingAssetIds);
       final newPhotoMaps = await _fetchNewPhotosMainThread(existingAssetIds);
+
+      if (mediaTypeBackfill.isNotEmpty) {
+        await photoProvider.updateMediaTypesBatch(mediaTypeBackfill);
+      }
 
       if (newPhotoMaps.isNotEmpty) {
         await photoProvider.addPhotosBatch(newPhotoMaps);
@@ -112,6 +117,43 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<Map<String, String>> _backfillExistingMediaTypes(Set<String> existingAssetIds) async {
+    if (existingAssetIds.isEmpty) return {};
+
+    final mediaTypesByAssetId = <String, String>{};
+
+    try {
+      final albums = await PhotoManager.getAssetPathList(onlyAll: true);
+      if (albums.isEmpty) return {};
+
+      const batchSize = 100;
+      int start = 0;
+
+      while (true) {
+        final assets = await albums.first.getAssetListRange(
+          start: start,
+          end: start + batchSize,
+        );
+        if (assets.isEmpty) break;
+
+        for (final asset in assets) {
+          if (!existingAssetIds.contains(asset.id)) continue;
+          final mediaType = _resolveMediaType(asset);
+          if (mediaType != 'image') {
+            mediaTypesByAssetId[asset.id] = mediaType;
+          }
+        }
+
+        if (assets.length < batchSize) break;
+        start += batchSize;
+      }
+    } catch (e) {
+      debugPrint('Backfill media type error: $e');
+    }
+
+    return mediaTypesByAssetId;
+  }
+
   /// 在主线程中从相册获取新照片
   Future<List<Map<String, dynamic>>> _fetchNewPhotosMainThread(Set<String> existingAssetIds) async {
     final newPhotos = <Map<String, dynamic>>[];
@@ -131,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         for (final asset in assets) {
           if (existingAssetIds.contains(asset.id)) continue;
+          final mediaType = _resolveMediaType(asset);
           newPhotos.add({
             'id': _uuid.v4(),
             'assetId': asset.id,
@@ -138,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'takenAt': asset.createDateTime?.millisecondsSinceEpoch,
             'width': asset.width,
             'height': asset.height,
+            'mediaType': mediaType,
           });
         }
 
@@ -148,6 +192,15 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('Fetch photos error: $e');
     }
     return newPhotos;
+  }
+
+  String _resolveMediaType(AssetEntity asset) {
+    try {
+      if (asset.type == AssetType.video) return 'video';
+      final dynamic liveFlag = asset.isLivePhoto;
+      if (liveFlag == true) return 'live';
+    } catch (_) {}
+    return asset.type.name;
   }
 
   /// 刷新按钮：重新同步相册
@@ -383,6 +436,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return PhotoTile(
                 key: ValueKey(photo.id),
                 assetId: photo.assetId,
+                mediaType: photo.mediaType,
                 onTap: () => _viewPhoto(photo),
                 onDeleteHoldComplete: () async {
                   await _moveToTrash(photo);

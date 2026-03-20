@@ -19,6 +19,7 @@ dependencies:
 
   # 照片相关
   photo_manager: ^3.0.0
+  video_player: ^2.9.1
 
   # UI 组件（photo_view 和 staggered_grid_view 已用原生组件替代）
 

@@ -63,6 +63,25 @@ class PhotoRepository {
     return (result.first['total'] as int?) ?? 0;
   }
 
+  /// 批量回填已存在照片的媒体类型
+  Future<void> updateMediaTypesBatch(Map<String, String> mediaTypesByAssetId) async {
+    if (mediaTypesByAssetId.isEmpty) return;
+
+    final database = await _db.database;
+    final batch = database.batch();
+
+    mediaTypesByAssetId.forEach((assetId, mediaType) {
+      batch.update(
+        'photos',
+        {'media_type': mediaType},
+        where: 'asset_id = ?',
+        whereArgs: [assetId],
+      );
+    });
+
+    await batch.commit(noResult: true);
+  }
+
   /// 批量插入照片
   Future<void> addPhotosBatch(List<Map<String, dynamic>> photoMaps) async {
     if (photoMaps.isEmpty) return;
@@ -84,6 +103,7 @@ class PhotoRepository {
           'height': map['height'] as int,
           'file_size': 0,
           'source_type': 'gallery',
+          'media_type': map['mediaType'] as String? ?? 'image',
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );

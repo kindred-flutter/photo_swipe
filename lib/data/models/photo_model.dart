@@ -9,6 +9,7 @@ class PhotoModel {
   final int height;
   final int fileSize; // 字节
   final String? sourceType; // 'gallery' | 'camera'
+  final String mediaType; // image | video | audio | other
 
   const PhotoModel({
     required this.id,
@@ -21,6 +22,7 @@ class PhotoModel {
     required this.height,
     required this.fileSize,
     this.sourceType,
+    this.mediaType = 'image',
   });
 
   /// 文件大小格式化，如 "3.2 MB"
@@ -46,6 +48,7 @@ class PhotoModel {
     int? height,
     int? fileSize,
     String? sourceType,
+    String? mediaType,
   }) {
     return PhotoModel(
       id: id ?? this.id,
@@ -58,6 +61,7 @@ class PhotoModel {
       height: height ?? this.height,
       fileSize: fileSize ?? this.fileSize,
       sourceType: sourceType ?? this.sourceType,
+      mediaType: mediaType ?? this.mediaType,
     );
   }
 
@@ -73,6 +77,7 @@ class PhotoModel {
       'height': height,
       'file_size': fileSize,
       'source_type': sourceType,
+      'media_type': mediaType,
     };
   }
 
@@ -90,6 +95,7 @@ class PhotoModel {
       height: map['height'] as int,
       fileSize: map['file_size'] as int? ?? 0,
       sourceType: map['source_type'] as String?,
+      mediaType: map['media_type'] as String? ?? 'image',
     );
   }
 }

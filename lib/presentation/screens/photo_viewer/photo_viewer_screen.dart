@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'dart:typed_data';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 import '../../providers/trash_provider.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../core/utils/date_utils.dart';
@@ -58,6 +59,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
   final Map<String, Uint8List> _thumbCache = {};
   final Map<String, Uint8List> _photoCache = {};
   final Map<String, int> _reloadVersions = {};
+  final Map<String, VideoPlayerController> _videoControllers = {};
 
   static const double _triggerDistance = 110.0;
   static const double _triggerAngleMin = 20.0 * math.pi / 180;
@@ -99,6 +101,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
   @override
   void dispose() {
+    for (final controller in _videoControllers.values) {
+      controller.dispose();
+    }
     _pageController.dispose();
     _snapController.dispose();
     _trashShakeController.dispose();
@@ -115,7 +120,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
   Future<void> _preloadPhoto(int index) async {
     if (index < 0 || index >= _photos.length) return;
-    final assetId = _photos[index].assetId;
+    final photo = _photos[index];
+    final assetId = photo.assetId;
 
     try {
       final asset = await AssetEntity.fromId(assetId);
@@ -130,6 +136,11 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
         }
       }
 
+      if (photo.mediaType == 'video' || photo.mediaType == 'live') {
+        await _ensureVideoController(photo);
+        return;
+      }
+
       if (!_photoCache.containsKey(assetId)) {
         final bytes = await asset.originBytes;
         if (bytes != null) {
@@ -137,6 +148,34 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
         }
       }
     } catch (_) {}
+  }
+
+  Future<VideoPlayerController?> _ensureVideoController(PhotoModel photo) async {
+    final existing = _videoControllers[photo.assetId];
+    if (existing != null) return existing;
+
+    try {
+      final asset = await AssetEntity.fromId(photo.assetId);
+      if (asset == null) return null;
+
+      File? file;
+      if (photo.mediaType == 'live' || asset.isLivePhoto) {
+        file = await asset.fileWithSubtype;
+        file ??= await asset.originFileWithSubtype;
+        file ??= await asset.loadFile(withSubtype: true);
+      } else {
+        file = await asset.file;
+      }
+      if (file == null) return null;
+
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      await controller.setLooping(false);
+      _videoControllers[photo.assetId] = controller;
+      return controller;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Uint8List?> _getPhotoData(String assetId) async {
@@ -164,6 +203,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
   void _reloadCurrentPhoto() {
     final assetId = _currentPhoto.assetId;
+    _videoControllers.remove(assetId)?.dispose();
     _photoCache.remove(assetId);
     _thumbCache.remove(assetId);
     _reloadVersions[assetId] = (_reloadVersions[assetId] ?? 0) + 1;
@@ -363,6 +403,148 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     }
   }
 
+  Widget _buildVideoContent(PhotoModel photo) {
+    return FutureBuilder<VideoPlayerController?>(
+      future: _ensureVideoController(photo),
+      builder: (context, snap) {
+        final controller = snap.data;
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const CircularProgressIndicator(color: Colors.white54);
+        }
+        if (controller == null || !controller.value.isInitialized) {
+          if (photo.mediaType == 'live') {
+            return FutureBuilder<Uint8List?>(
+              future: _getPhotoData(photo.assetId),
+              builder: (context, snap) {
+                if (snap.hasData && snap.data != null) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Image.memory(
+                        snap.data!,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          '当前仅展示实况主图，暂未取到动态视频片段',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return const CircularProgressIndicator(color: Colors.white54);
+              },
+            );
+          }
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.play_circle_outline_rounded,
+                color: Colors.white70,
+                size: 44,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '动态内容暂时不可播放',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '可能仍在从 iCloud 同步，稍后可重新加载',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton.tonal(
+                onPressed: () => _reloadCurrentPhoto(),
+                style: FilledButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                ),
+                child: const Text('重新加载'),
+              ),
+            ],
+          );
+        }
+
+        return GestureDetector(
+          onTap: () {
+            if (controller.value.isPlaying) {
+              controller.pause();
+            } else {
+              controller.play();
+            }
+            setState(() {});
+          },
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AspectRatio(
+                aspectRatio: controller.value.aspectRatio == 0
+                    ? 1
+                    : controller.value.aspectRatio,
+                child: VideoPlayer(controller),
+              ),
+              if (!controller.value.isPlaying)
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 42,
+                  ),
+                ),
+              Positioned(
+                bottom: 20,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    photo.mediaType == 'live'
+                        ? (controller.value.isPlaying ? '点击暂停实况照片' : '点击播放实况照片')
+                        : (controller.value.isPlaying ? '点击暂停动态照片' : '点击播放动态照片'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -527,13 +709,15 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                   return Opacity(
                     opacity: isCurrentDragging ? 0.18 : 1.0,
                     child: InteractiveViewer(
-                      minScale: 0.8,
-                      maxScale: 4.0,
+                      minScale: photo.mediaType == 'video' ? 1.0 : 0.8,
+                      maxScale: photo.mediaType == 'video' ? 1.0 : 4.0,
                       child: Center(
-                        child: FutureBuilder<Uint8List?>(
-                          key: ValueKey('${photo.assetId}-$reloadVersion'),
-                          future: _getPhotoData(photo.assetId),
-                          builder: (context, snap) {
+                        child: (photo.mediaType == 'video' || photo.mediaType == 'live')
+                            ? _buildVideoContent(photo)
+                            : FutureBuilder<Uint8List?>(
+                                key: ValueKey('${photo.assetId}-$reloadVersion'),
+                                future: _getPhotoData(photo.assetId),
+                                builder: (context, snap) {
                             if (snap.hasData && snap.data != null) {
                               return Image.memory(
                                 snap.data!,

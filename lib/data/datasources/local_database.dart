@@ -25,7 +25,7 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -43,7 +43,8 @@ class LocalDatabase {
         width INTEGER,
         height INTEGER,
         file_size INTEGER,
-        source_type TEXT
+        source_type TEXT,
+        media_type TEXT DEFAULT 'image'
       )
     ''');
 
@@ -90,6 +91,12 @@ class LocalDatabase {
           expire_at INTEGER
         )
       ''');
+    }
+
+    if (oldVersion < 3) {
+      await db.execute(
+        "ALTER TABLE photos ADD COLUMN media_type TEXT DEFAULT 'image'",
+      );
     }
   }
 

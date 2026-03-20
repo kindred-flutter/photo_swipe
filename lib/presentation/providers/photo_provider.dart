@@ -115,6 +115,25 @@ class PhotoProvider extends ChangeNotifier {
     return await _repository.getAllAssetIds();
   }
 
+  /// 批量回填媒体类型
+  Future<void> updateMediaTypesBatch(Map<String, String> mediaTypesByAssetId) async {
+    try {
+      await _repository.updateMediaTypesBatch(mediaTypesByAssetId);
+      if (mediaTypesByAssetId.isNotEmpty) {
+        _photos = await _repository.getPhotos(limit: _pageSize, offset: 0);
+        _loadedIds
+          ..clear()
+          ..addAll(_photos.map((p) => p.id));
+        _totalCount = await _repository.getTotalCount();
+        _hasMore = _photos.length >= _pageSize;
+        notifyListeners();
+      }
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
   /// 批量添加照片
   Future<void> addPhotosBatch(List<Map<String, dynamic>> photoMaps) async {
     try {
