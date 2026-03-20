@@ -18,62 +18,63 @@ class StatsBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark
+        ? const Color(0xFF131722)
+        : Colors.white.withValues(alpha: 0.92);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.06);
+    final mutedColor = isDark ? Colors.white60 : Colors.black54;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
 
     return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [
-                  AppColors.surfaceDark,
-                  AppColors.surfaceDark.withValues(alpha: 0.8),
-                ]
-              : [
-                  AppColors.primaryContainer,
-                  AppColors.secondaryContainer,
-                ],
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
-        ),
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: (isDark ? AppColors.primary : AppColors.primary)
-                .withValues(alpha: 0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.md,
-      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _StatItem(
-            icon: Icons.image_outlined,
-            label: AppStrings.statsTotal,
-            value: totalPhotos,
-            unit: AppStrings.statsUnit,
-            color: AppColors.primary,
+          Expanded(
+            child: _SummaryBlock(
+              label: AppStrings.statsTotal,
+              value: '$totalPhotos',
+              suffix: AppStrings.statsUnit,
+              accent: AppColors.primary,
+              textColor: textColor,
+              mutedColor: mutedColor,
+            ),
           ),
-          _StatItem(
-            icon: Icons.delete_outline,
-            label: AppStrings.statsTrash,
-            value: trashedPhotos,
-            unit: AppStrings.statsUnit,
-            color: AppColors.accent,
+          _Divider(isDark: isDark),
+          Expanded(
+            child: _SummaryBlock(
+              label: AppStrings.statsTrash,
+              value: '$trashedPhotos',
+              suffix: AppStrings.statsUnit,
+              accent: const Color(0xFFE76F51),
+              textColor: textColor,
+              mutedColor: mutedColor,
+            ),
           ),
-          _StatItem(
-            icon: Icons.storage_outlined,
-            label: AppStrings.statsSaved,
-            value: savedMB,
-            unit: AppStrings.statsMB,
-            color: AppColors.secondary,
+          _Divider(isDark: isDark),
+          Expanded(
+            child: _SummaryBlock(
+              label: AppStrings.statsSaved,
+              value: '$savedMB',
+              suffix: AppStrings.statsMB,
+              accent: const Color(0xFF2A9D8F),
+              textColor: textColor,
+              mutedColor: mutedColor,
+            ),
           ),
         ],
       ),
@@ -81,72 +82,97 @@ class StatsBanner extends StatelessWidget {
   }
 }
 
-class _StatItem extends StatelessWidget {
-  final IconData icon;
+class _SummaryBlock extends StatelessWidget {
   final String label;
-  final int value;
-  final String unit;
-  final Color color;
+  final String value;
+  final String suffix;
+  final Color accent;
+  final Color textColor;
+  final Color mutedColor;
 
-  const _StatItem({
-    required this.icon,
+  const _SummaryBlock({
     required this.label,
     required this.value,
-    required this.unit,
-    required this.color,
+    required this.suffix,
+    required this.accent,
+    required this.textColor,
+    required this.mutedColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 20,
+            color: accent,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.35),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 20,
+            height: 1,
+            fontWeight: FontWeight.w800,
+            color: textColor,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          suffix,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: mutedColor,
+          ),
+        ),
+        const SizedBox(height: 6),
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 11,
-            color: isDark ? Colors.white70 : Colors.black54,
             fontWeight: FontWeight.w500,
+            color: mutedColor,
           ),
         ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Text(
-              value.toString(),
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(width: 2),
-            Text(
-              unit,
-              style: TextStyle(
-                fontSize: 11,
-                color: isDark ? Colors.white54 : Colors.black45,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
       ],
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  final bool isDark;
+
+  const _Divider({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 52,
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+      color: isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : Colors.black.withValues(alpha: 0.08),
     );
   }
 }

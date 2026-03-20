@@ -1,5 +1,5 @@
 <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- ÌoØ -->
+  <!-- ï¿½oï¿½ -->
   <defs>
     <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#5B7FFF;stop-opacity:1" />
@@ -11,46 +11,46 @@
     </linearGradient>
   </defs>
   
-  <!-- bÌo -->
+  <!-- bï¿½o -->
   <circle cx="512" cy="512" r="512" fill="url(#bgGradient)"/>
   
-  <!-- … -->
+  <!-- ï¿½ -->
   <circle cx="512" cy="512" r="460" fill="white" opacity="0.1"/>
   
-  <!-- gGF¶ 1 (æ
+  <!-- gGFï¿½ 1 (ï¿½
 ) -->
   <g transform="translate(280, 280)">
     <rect x="0" y="0" width="140" height="140" rx="20" fill="white" opacity="0.95"/>
     <rect x="8" y="8" width="124" height="124" rx="16" fill="#E8EEFF"/>
-    <!-- gG…¹ -->
+    <!-- gGï¿½ï¿½ -->
     <circle cx="60" cy="50" r="25" fill="#5B7FFF"/>
     <path d="M 30 90 L 50 70 L 70 85 L 90 65 L 110 90 L 110 110 L 30 110 Z" fill="#7C5CFF"/>
   </g>
   
-  <!-- gGF¶ 2 (ó
+  <!-- gGFï¿½ 2 (ï¿½
 ) -->
   <g transform="translate(604, 280)">
     <rect x="0" y="0" width="140" height="140" rx="20" fill="white" opacity="0.95"/>
     <rect x="8" y="8" width="124" height="124" rx="16" fill="#F0E8FF"/>
-    <!-- gG…¹ -->
+    <!-- gGï¿½ï¿½ -->
     <circle cx="60" cy="50" r="25" fill="#FF6B6B"/>
     <path d="M 30 90 L 50 70 L 70 85 L 90 65 L 110 90 L 110 110 L 30 110 Z" fill="#FF8A80"/>
   </g>
   
-  <!-- gGF¶ 3 (æ) -->
+  <!-- gGFï¿½ 3 (ï¿½) -->
   <g transform="translate(280, 604)">
     <rect x="0" y="0" width="140" height="140" rx="20" fill="white" opacity="0.95"/>
     <rect x="8" y="8" width="124" height="124" rx="16" fill="#E8EEFF"/>
-    <!-- gG…¹ -->
+    <!-- gGï¿½ï¿½ -->
     <circle cx="60" cy="50" r="25" fill="#06A77D"/>
     <path d="M 30 90 L 50 70 L 70 85 L 90 65 L 110 90 L 110 110 L 30 110 Z" fill="#4ECDC4"/>
   </g>
   
-  <!-- gGF¶ 4 (ó) -  d° -->
+  <!-- gGFï¿½ 4 (ï¿½) -  dï¿½ -->
   <g transform="translate(604, 604)">
     <rect x="0" y="0" width="140" height="140" rx="20" fill="white" opacity="0.95"/>
     <rect x="8" y="8" width="124" height="124" rx="16" fill="#FFE8E8"/>
-    <!-- ƒ>vþ -->
+    <!-- ï¿½>vï¿½ -->
     <g transform="translate(60, 50)">
       <path d="M -15 -10 L 15 -10 L 12 30 L -12 30 Z" fill="none" stroke="#FF6B6B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
       <line x1="-8" y1="-10" x2="-8" y2="-15" stroke="#FF6B6B" stroke-width="3" stroke-linecap="round"/>
@@ -62,7 +62,7 @@
     </g>
   </g>
   
-  <!-- -ÃÅp -->
+  <!-- -ï¿½ï¿½p -->
   <circle cx="512" cy="512" r="80" fill="white" opacity="0.15"/>
   <circle cx="512" cy="512" r="60" fill="none" stroke="white" stroke-width="3" opacity="0.3"/>
 </svg>

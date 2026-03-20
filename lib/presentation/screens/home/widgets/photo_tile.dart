@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
@@ -42,14 +43,14 @@ class _ThumbnailCache {
 class PhotoTile extends StatefulWidget {
   final String assetId;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
+  final VoidCallback? onDeleteHoldComplete;
   final bool isSelected;
 
   const PhotoTile({
     super.key,
     required this.assetId,
     required this.onTap,
-    this.onLongPress,
+    this.onDeleteHoldComplete,
     this.isSelected = false,
   });
 
@@ -58,12 +59,16 @@ class PhotoTile extends StatefulWidget {
 }
 
 class _PhotoTileState extends State<PhotoTile>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  late AnimationController _deleteHoldController;
+  late AnimationController _deleteFadeController;
+  late AnimationController _collapseController;
   Uint8List? _thumbnail;
   bool _isLoading = true;
   bool _hasError = false;
+  bool _deleteTriggered = false;
 
   @override
   void initState() {
@@ -75,7 +80,36 @@ class _PhotoTileState extends State<PhotoTile>
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
-    
+    _deleteHoldController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    )..addListener(() {
+        if (mounted) setState(() {});
+      })
+      ..addStatusListener((status) async {
+        if (status == AnimationStatus.completed && !_deleteTriggered) {
+          _deleteTriggered = true;
+          HapticFeedback.mediumImpact();
+          await _deleteFadeController.forward(from: 0);
+          await _collapseController.forward(from: 0);
+          if (mounted) {
+            widget.onDeleteHoldComplete?.call();
+          }
+        }
+      });
+    _deleteFadeController = AnimationController(
+      duration: const Duration(milliseconds: 240),
+      vsync: this,
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
+    _collapseController = AnimationController(
+      duration: const Duration(milliseconds: 180),
+      vsync: this,
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
+
     _loadThumbnail();
   }
 
@@ -132,45 +166,132 @@ class _PhotoTileState extends State<PhotoTile>
   @override
   void dispose() {
     _controller.dispose();
+    _deleteHoldController.dispose();
+    _deleteFadeController.dispose();
+    _collapseController.dispose();
     super.dispose();
+  }
+
+  void _startDeleteHold() {
+    if (widget.onDeleteHoldComplete == null) return;
+    _deleteTriggered = false;
+    _deleteFadeController.value = 0;
+    _collapseController.value = 0;
+    HapticFeedback.selectionClick();
+    _deleteHoldController.forward(from: 0);
+  }
+
+  void _cancelDeleteHold() {
+    if (_deleteTriggered) return;
+    if (_deleteHoldController.isAnimating || _deleteHoldController.value > 0) {
+      _deleteHoldController.stop();
+      _deleteHoldController.reverse();
+    }
+    if (_deleteFadeController.isAnimating || _deleteFadeController.value > 0) {
+      _deleteFadeController.stop();
+      _deleteFadeController.reverse();
+    }
+    if (_collapseController.isAnimating || _collapseController.value > 0) {
+      _collapseController.stop();
+      _collapseController.reverse();
+    }
+    _deleteTriggered = false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap();
-      },
-      onTapCancel: _controller.reverse,
-      onLongPress: widget.onLongPress,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _buildImage(),
-              if (widget.isSelected)
-                Positioned.fill(
-                  child: Container(
-                    color: AppColors.primary.withAlpha(76),
-                    child: Center(
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check, color: Colors.white, size: 18),
+    final deleteProgress = (_deleteHoldController.value / 0.5).clamp(0.0, 1.0);
+    final fadeProgress = _deleteFadeController.value;
+    final collapseProgress = _collapseController.value;
+    final borderColor = Color.lerp(
+      Colors.transparent,
+      const Color(0xFFE63946),
+      Curves.easeIn.transform(deleteProgress),
+    )!;
+    final overlayColor = const Color(0xFFE63946).withValues(
+      alpha: 0.08 + deleteProgress * 0.22 + fadeProgress * 0.18,
+    );
+    final visualOpacity = (1 - fadeProgress).clamp(0.0, 1.0);
+    final visualScale = 1 - fadeProgress * 0.08;
+    final heightFactor = 1 - collapseProgress;
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ClipRect(
+        child: Align(
+          heightFactor: heightFactor,
+          child: GestureDetector(
+            onTapDown: (_) => _controller.forward(),
+            onTapUp: (_) {
+              _controller.reverse();
+              widget.onTap();
+            },
+            onTapCancel: _controller.reverse,
+            onLongPressStart: (_) => _startDeleteHold(),
+            onLongPressEnd: (_) => _cancelDeleteHold(),
+            onLongPressCancel: _cancelDeleteHold,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: Transform.scale(
+                scale: visualScale,
+                child: Opacity(
+                  opacity: visualOpacity,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
+                      border: Border.all(
+                        color: borderColor,
+                        width: 1.5 + deleteProgress * 2.5,
+                      ),
+                      boxShadow: deleteProgress > 0 || fadeProgress > 0
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFFE63946).withValues(
+                                  alpha: 0.12 + deleteProgress * 0.18 + fadeProgress * 0.12,
+                                ),
+                                blurRadius: 8 + deleteProgress * 14 + fadeProgress * 8,
+                                spreadRadius: deleteProgress * 1.5,
+                              ),
+                            ]
+                          : [],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusTile),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _buildImage(),
+                          if (deleteProgress > 0 || fadeProgress > 0)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Container(color: overlayColor),
+                              ),
+                            ),
+                          if (widget.isSelected)
+                            Positioned.fill(
+                              child: Container(
+                                color: AppColors.primary.withValues(alpha: 0.3),
+                                child: Center(
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: const BoxDecoration(
+                                      color: AppColors.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.check, color: Colors.white, size: 18),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-            ],
+              ),
+            ),
           ),
         ),
       ),

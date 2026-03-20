@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'dart:typed_data';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:provider/provider.dart';
+import '../../providers/trash_provider.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../core/utils/date_utils.dart';
 import 'widgets/photo_info_panel.dart';
@@ -37,6 +39,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
   final ValueNotifier<Offset> _cardOffset = ValueNotifier(Offset.zero);
   final ValueNotifier<double> _cardRotation = ValueNotifier(0.0);
   final ValueNotifier<bool> _isDragging = ValueNotifier(false);
+  final ValueNotifier<bool> _showDragCard = ValueNotifier(false);
+  bool _isDeleteDragIntent = false;
   Offset _dragStart = Offset.zero;
 
   // 回弹/飞出动画
@@ -45,6 +49,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
   // 垃圾桶状态
   final ValueNotifier<bool> _trashActive = ValueNotifier(false);
+  final ValueNotifier<bool> _isArmed = ValueNotifier(false);
   late AnimationController _trashShakeController;
   late Animation<double> _trashShake;
 
@@ -98,7 +103,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     _cardOffset.dispose();
     _cardRotation.dispose();
     _isDragging.dispose();
+    _showDragCard.dispose();
     _trashActive.dispose();
+    _isArmed.dispose();
     super.dispose();
   }
 
@@ -151,32 +158,60 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     if (_isDeleting) return;
     _snapController.stop();
     _dragStart = e.localPosition;
+    _isDeleteDragIntent = false;
     _cardOffset.value = Offset.zero;
     _cardRotation.value = 0;
-    _isDragging.value = true;
+    _showDragCard.value = false;
   }
 
   void _onPointerMove(PointerMoveEvent e) {
-    if (!_isDragging.value || _isDeleting) return;
-    final delta = e.localPosition - _dragStart;
-    _cardOffset.value = delta;
-    _cardRotation.value = (delta.dx / 300).clamp(-0.26, 0.26);
-    _trashActive.value = _isDeleteGesture(delta);
+    if (_isDeleting) return;
+    final rawDelta = e.localPosition - _dragStart;
+
+    if (!_isDeleteDragIntent) {
+      final isIntent = rawDelta.dx > 18 && rawDelta.dy < -18;
+      if (!isIntent) return;
+      _isDeleteDragIntent = true;
+      _isDragging.value = true;
+      _showDragCard.value = true;
+    }
+
+    final armed = _isDeleteGesture(rawDelta);
+    _isArmed.value = armed;
+    _trashActive.value = armed;
+
+    if (armed) {
+      final screenSize = MediaQuery.of(context).size;
+      final trashTarget = Offset(screenSize.width / 2 - 34, -screenSize.height / 2 + 72);
+      final pull = ((rawDelta.distance - _triggerDistance) / 140).clamp(0.0, 1.0);
+      _cardOffset.value = Offset.lerp(rawDelta, trashTarget, 0.18 + pull * 0.42)!;
+      _cardRotation.value = (rawDelta.dx / 380).clamp(0.08, 0.22);
+      return;
+    }
+
+    _cardOffset.value = rawDelta;
+    _cardRotation.value = (rawDelta.dx / 300).clamp(-0.18, 0.18);
   }
 
   void _onPointerUp(PointerUpEvent e) {
-    if (!_isDragging.value || _isDeleting) return;
+    if (_isDeleting) return;
+    if (!_isDeleteDragIntent) return;
+
     _isDragging.value = false;
-    final delta = e.localPosition - _dragStart;
-    if (_isDeleteGesture(delta)) {
+    _isDeleteDragIntent = false;
+
+    if (_isArmed.value) {
       _triggerDelete();
-    } else {
-      _trashActive.value = false;
-      _snapBack();
+      return;
     }
+
+    _showDragCard.value = false;
+    _trashActive.value = false;
+    _snapBack();
   }
 
   void _snapBack() {
+    _isArmed.value = false;
     _snapAnimation = Tween<Offset>(
       begin: _cardOffset.value,
       end: Offset.zero,
@@ -185,7 +220,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
       curve: Curves.elasticOut,
     ));
     _cardRotation.value = 0;
-    _snapController.forward(from: 0);
+    _snapController.forward(from: 0).whenComplete(() {
+      _showDragCard.value = false;
+    });
   }
 
   void _triggerDelete() async {
@@ -206,6 +243,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     _snapController.forward(from: 0);
 
     _trashActive.value = true;
+    _isArmed.value = true;
     await Future.delayed(const Duration(milliseconds: 140));
     HapticFeedback.heavyImpact();
     _trashShakeController.forward(from: 0);
@@ -226,6 +264,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
       _cardOffset.value = Offset.zero;
       _cardRotation.value = 0;
       _trashActive.value = false;
+      _isArmed.value = false;
+      _showDragCard.value = false;
       _snapController.duration = const Duration(milliseconds: 350);
 
       if (_currentIndex < total - 1) {
@@ -296,37 +336,85 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
             ),
             onPressed: () => setState(() => _showInfo = !_showInfo),
           ),
-          // 垃圾桶
-          ValueListenableBuilder<bool>(
-            valueListenable: _trashActive,
-            builder: (context, active, _) => AnimatedBuilder(
-              animation: _trashShake,
-              builder: (context, _) => Transform.rotate(
-                angle: _trashShake.value,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: active
-                          ? const Color(0xFFE63946).withValues(alpha: 0.9)
-                          : Colors.white.withValues(alpha: 0.15),
-                      boxShadow: active
-                          ? [BoxShadow(
-                              color: const Color(0xFFE63946).withValues(alpha: 0.5),
-                              blurRadius: 16, spreadRadius: 3)]
-                          : [],
-                    ),
-                    child: Icon(
-                      active ? Icons.delete : Icons.delete_outline,
-                      color: Colors.white, size: 22,
+          // 垃圾桶（带暂存数量角标）
+          Consumer<TrashProvider>(
+            builder: (context, trashProvider, _) {
+              final trashCount = trashProvider.items.length;
+              return ValueListenableBuilder<bool>(
+                valueListenable: _trashActive,
+                builder: (context, active, _) => AnimatedBuilder(
+                  animation: _trashShake,
+                  builder: (context, _) => Transform.rotate(
+                    angle: _trashShake.value,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: active
+                                  ? const Color(0xFFE63946).withValues(alpha: 0.9)
+                                  : Colors.white.withValues(alpha: 0.15),
+                              boxShadow: active
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFFE63946)
+                                            .withValues(alpha: 0.5),
+                                        blurRadius: 16,
+                                        spreadRadius: 3,
+                                      )
+                                    ]
+                                  : [],
+                            ),
+                            child: Icon(
+                              active ? Icons.delete : Icons.delete_outline,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          if (trashCount > 0)
+                            Positioned(
+                              right: -6,
+                              top: -6,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                constraints: const BoxConstraints(
+                                  minWidth: 20,
+                                  minHeight: 20,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFB703),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: Colors.black,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Text(
+                                  trashCount > 99 ? '99+' : '$trashCount',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
@@ -336,17 +424,19 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
         onPointerUp: _onPointerUp,
         onPointerCancel: (_) {
           _isDragging.value = false;
+          _isDeleteDragIntent = false;
           _trashActive.value = false;
+          _isArmed.value = false;
           _snapBack();
         },
         child: Stack(
           children: [
             // 背景 PageView（只在非拖拽时可滑动）
             ValueListenableBuilder<bool>(
-              valueListenable: _isDragging,
-              builder: (context, dragging, _) => PageView.builder(
+              valueListenable: _showDragCard,
+              builder: (context, showDragCard, _) => PageView.builder(
                 controller: _pageController,
-                physics: (_isDeleting || dragging)
+                physics: (_isDeleting || showDragCard)
                     ? const NeverScrollableScrollPhysics()
                     : const BouncingScrollPhysics(),
                 onPageChanged: (i) {
@@ -358,25 +448,29 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                 itemCount: _photos.length,
                 itemBuilder: (context, index) {
                   final photo = _photos[index];
-                  return InteractiveViewer(
-                    minScale: 0.8,
-                    maxScale: 4.0,
-                    child: Center(
-                      child: FutureBuilder<Uint8List?>(
-                        future: _getPhotoData(photo.assetId),
-                        builder: (context, snap) {
-                          if (snap.hasData && snap.data != null) {
-                            return Image.memory(snap.data!,
-                                fit: BoxFit.contain,
-                                gaplessPlayback: true);
-                          }
-                          if (_thumbCache.containsKey(photo.assetId)) {
-                            return Image.memory(_thumbCache[photo.assetId]!,
-                                fit: BoxFit.contain, gaplessPlayback: true);
-                          }
-                          return const CircularProgressIndicator(
-                              color: Colors.white54);
-                        },
+                  final isCurrentDragging = index == _currentIndex && _showDragCard.value;
+                  return Opacity(
+                    opacity: isCurrentDragging ? 0.18 : 1.0,
+                    child: InteractiveViewer(
+                      minScale: 0.8,
+                      maxScale: 4.0,
+                      child: Center(
+                        child: FutureBuilder<Uint8List?>(
+                          future: _getPhotoData(photo.assetId),
+                          builder: (context, snap) {
+                            if (snap.hasData && snap.data != null) {
+                              return Image.memory(snap.data!,
+                                  fit: BoxFit.contain,
+                                  gaplessPlayback: true);
+                            }
+                            if (_thumbCache.containsKey(photo.assetId)) {
+                              return Image.memory(_thumbCache[photo.assetId]!,
+                                  fit: BoxFit.contain, gaplessPlayback: true);
+                            }
+                            return const CircularProgressIndicator(
+                                color: Colors.white54);
+                          },
+                        ),
                       ),
                     ),
                   );
@@ -386,9 +480,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
             // 拖拽中的卡片覆盖层
             ValueListenableBuilder<bool>(
-              valueListenable: _isDragging,
-              builder: (context, dragging, _) {
-                if (!dragging) return const SizedBox.shrink();
+              valueListenable: _showDragCard,
+              builder: (context, showDragCard, _) {
+                if (!showDragCard) return const SizedBox.shrink();
                 return ValueListenableBuilder<Offset>(
                   valueListenable: _cardOffset,
                   builder: (context, offset, _) =>
@@ -397,24 +491,34 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                     builder: (context, rotation, _) {
                       final progress =
                           (offset.distance / _triggerDistance).clamp(0.0, 1.0);
+                      final armed = _isArmed.value;
+                      final scale = armed ? (1.0 - progress * 0.18).clamp(0.78, 1.0) : 1.0;
+                      final opacity = armed
+                          ? (1.0 - progress * 0.32).clamp(0.62, 1.0)
+                          : (1.0 - progress * 0.2).clamp(0.0, 1.0);
                       return Positioned.fill(
                         child: IgnorePointer(
                           child: Transform.translate(
                             offset: offset,
                             child: Transform.rotate(
                               angle: rotation,
-                              child: Opacity(
-                                opacity: (1.0 - progress * 0.2).clamp(0.0, 1.0),
-                                child: FutureBuilder<Uint8List?>(
-                                  future: _getThumb(_currentPhoto.assetId),
-                                  builder: (context, snap) {
-                                    if (snap.hasData && snap.data != null) {
-                                      return Image.memory(snap.data!,
+                              child: Transform.scale(
+                                scale: scale,
+                                child: Opacity(
+                                  opacity: opacity,
+                                  child: Builder(
+                                    builder: (context) {
+                                      final cachedThumb = _thumbCache[_currentPhoto.assetId];
+                                      if (cachedThumb != null) {
+                                        return Image.memory(
+                                          cachedThumb,
                                           fit: BoxFit.contain,
-                                          gaplessPlayback: true);
-                                    }
-                                    return const SizedBox.shrink();
-                                  },
+                                          gaplessPlayback: true,
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    },
+                                  ),
                                 ),
                               ),
                             ),
@@ -429,9 +533,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
 
             // 底部提示
             ValueListenableBuilder<bool>(
-              valueListenable: _isDragging,
-              builder: (context, dragging, _) {
-                if (dragging || _isDeleting) return const SizedBox.shrink();
+              valueListenable: _showDragCard,
+              builder: (context, showDragCard, _) {
+                if (showDragCard || _isDeleting) return const SizedBox.shrink();
                 return Positioned(
                   bottom: 48, left: 0, right: 0,
                   child: Center(
@@ -452,9 +556,9 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
             // 照片信息面板
             if (_showInfo && !_isDeleting)
               ValueListenableBuilder<bool>(
-                valueListenable: _isDragging,
-                builder: (context, dragging, _) {
-                  if (dragging) return const SizedBox.shrink();
+                valueListenable: _showDragCard,
+                builder: (context, showDragCard, _) {
+                  if (showDragCard) return const SizedBox.shrink();
                   return Positioned(
                     left: 0, right: 0, bottom: 0,
                     child: PhotoInfoPanel(

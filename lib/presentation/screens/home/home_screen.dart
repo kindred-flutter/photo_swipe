@@ -11,13 +11,12 @@ import '../../../data/models/trash_item_model.dart';
 import '../../providers/photo_provider.dart';
 import '../../providers/stats_provider.dart';
 import '../../providers/trash_provider.dart';
-import '../../widgets/gestures/swipe_to_delete_detector.dart';
+import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/glassmorphic_container.dart';
 import '../photo_viewer/photo_viewer_screen.dart';
 import 'widgets/stats_banner.dart';
 import 'widgets/photo_tile.dart';
 import '../trash/widgets/trash_tile.dart';
-import '../../widgets/common/empty_state.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +27,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  bool _isSyncing = false;
   static const _uuid = Uuid();
   final ScrollController _scrollController = ScrollController();
 
@@ -76,26 +76,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 同步相册：只导入数据库中没有的照片（通过 assetId 去重）
   Future<void> _syncFromGallery() async {
     final photoProvider = context.read<PhotoProvider>();
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
     try {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                ),
-                SizedBox(width: 16),
-                Text('正在同步相册...'),
-              ],
-            ),
-            duration: Duration(seconds: 60),
-          ),
-        );
-      }
-
       // 直接在主线程执行（photo_manager 不支持后台 Isolate）
       final existingAssetIds = await photoProvider.getAllAssetIds();
       final newPhotoMaps = await _fetchNewPhotosMainThread(existingAssetIds);
@@ -106,27 +89,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
       await photoProvider.loadPhotos();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        if (newPhotoMaps.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已同步 \${newPhotoMaps.length} 张新照片')),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('相册已是最新'),
-                duration: Duration(seconds: 2)),
-          );
-        }
+      if (mounted && newPhotoMaps.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已同步 ${newPhotoMaps.length} 张新照片'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Sync error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('同步失败: $e')),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
       }
     }
   }
@@ -209,20 +189,60 @@ class _HomeScreenState extends State<HomeScreen> {
     await photoProvider.deletePhoto(photo.id);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(AppStrings.movedToTrash),
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: AppStrings.undoAction,
-          onPressed: () async {
-            // 撤销：先恢复照片到主相册，再从垃圾箱删除
-            await photoProvider.addPhoto(photo);
-            await trashProvider.restoreFromTrash(trashItem.id);
-          },
-        ),
-      ),
-    );
+    final messenger = ScaffoldMessenger.of(context);
+    final countdown = ValueNotifier<int>(5);
+    var undone = false;
+    var snackbarClosed = false;
+
+    messenger.hideCurrentSnackBar();
+    messenger
+        .showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            content: Row(
+              children: [
+                const Expanded(
+                  child: Text(AppStrings.movedToTrash),
+                ),
+                ValueListenableBuilder<int>(
+                  valueListenable: countdown,
+                  builder: (context, secondsLeft, _) {
+                    return TextButton(
+                      onPressed: () async {
+                        if (undone || snackbarClosed) return;
+                        undone = true;
+                        await photoProvider.addPhoto(photo);
+                        await trashProvider.restoreFromTrash(trashItem.id);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        }
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF7AB6FF),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text('撤销 · ${secondsLeft}s'),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        )
+        .closed
+        .whenComplete(() {
+          snackbarClosed = true;
+          countdown.dispose();
+        });
+
+    for (var i = 4; i >= 0; i--) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted || undone || snackbarClosed) break;
+      countdown.value = i;
+    }
   }
 
   void _viewPhoto(PhotoModel photo) {
@@ -245,34 +265,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (width > 900) return 4;
     if (width > 600) return 3;
     return AppSpacing.gridCrossAxisCount;
-  }
-
-  void _showAddPhotoOptions() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text(AppStrings.addFromGallery),
-              onTap: () { Navigator.pop(context); _importFromGallery(); },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text(AppStrings.addFromCamera),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('相机功能开发中')),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showTrashItemOptions(BuildContext context, TrashItemModel item) {
@@ -341,9 +333,25 @@ class _HomeScreenState extends State<HomeScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: IconButton(
-                icon: const Icon(Icons.refresh_rounded),
-                onPressed: _importFromGallery,
-                tooltip: '刷新相册',
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _isSyncing
+                      ? SizedBox(
+                          key: const ValueKey('syncing'),
+                          width: 20,
+                          height: 20,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.refresh_rounded,
+                          key: ValueKey('idle'),
+                        ),
+                ),
+                onPressed: _isSyncing ? null : _importFromGallery,
+                tooltip: _isSyncing ? '正在同步相册' : '刷新相册',
                 splashRadius: 24,
               ),
             ),
@@ -364,14 +372,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       bottomNavigationBar: _buildGlassBottomNav(context),
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: _showAddPhotoOptions,
-              icon: const Icon(Icons.add_photo_alternate),
-              label: const Text('添加'),
-              elevation: 8,
-            )
-          : null,
     );
   }
 
@@ -412,13 +412,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
               final photo = photoProvider.photos[index];
-              return SwipeToDeleteDetector(
-                onDeleted: () => _moveToTrash(photo),
-                child: PhotoTile(
-                  assetId: photo.assetId,
-                  onTap: () => _viewPhoto(photo),
-                  onLongPress: () => _moveToTrash(photo),
-                ),
+              return PhotoTile(
+                key: ValueKey(photo.id),
+                assetId: photo.assetId,
+                onTap: () => _viewPhoto(photo),
+                onDeleteHoldComplete: () => _moveToTrash(photo),
               );
             },
           ),
@@ -564,7 +562,7 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Consumer<TrashProvider>(
             builder: (context, trash, _) => Badge(
               isLabelVisible: trash.items.isNotEmpty,
-              label: Text('\${trash.items.length}'),
+              label: Text('${trash.items.length}'),
               child: const Icon(Icons.delete_outline),
             ),
           ),
@@ -591,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Consumer<TrashProvider>(
               builder: (context, trash, _) => Badge(
                 isLabelVisible: trash.items.isNotEmpty,
-                label: Text('\${trash.items.length}'),
+                label: Text('${trash.items.length}'),
                 child: const Icon(Icons.delete_outline),
               ),
             ),
