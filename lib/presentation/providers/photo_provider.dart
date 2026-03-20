@@ -57,4 +57,9 @@ class PhotoProvider extends ChangeNotifier {
   Future<int> getTotalFileSize() async {
     return await _repository.getTotalFileSize();
   }
+
+  /// 从数据库获取所有 assetId，用于去重判断
+  Future<Set<String>> getAllAssetIds() async {
+    return await _repository.getAllAssetIds();
+  }
 }

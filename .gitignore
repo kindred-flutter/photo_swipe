@@ -14,3 +14,7 @@ ios/Pods/
 ios/Podfile.lock
 .env
 .env.*.local
+.DS_Store
+*.iml
+.idea/
+android/.gradle/

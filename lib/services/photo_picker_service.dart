@@ -1,6 +1,6 @@
 import 'package:photo_manager/photo_manager.dart';
 import 'package:uuid/uuid.dart';
-import '../models/photo_model.dart';
+import '../data/models/photo_model.dart';
 
 class PhotoPickerService {
   static const uuid = Uuid();

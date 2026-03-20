@@ -34,7 +34,7 @@ class LocalDatabase {
     await db.execute('''
       CREATE TABLE photos (
         id TEXT PRIMARY KEY,
-        asset_id TEXT,
+        asset_id TEXT UNIQUE,
         local_path TEXT,
         thumbnail_path TEXT,
         added_at INTEGER,
@@ -44,6 +44,10 @@ class LocalDatabase {
         file_size INTEGER,
         source_type TEXT
       )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_photos_asset_id ON photos(asset_id)
     ''');
 
     await db.execute('''

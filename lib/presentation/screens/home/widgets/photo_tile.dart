@@ -1,6 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_spacing.dart';
 
 class PhotoTile extends StatelessWidget {
   final String? thumbnailPath;
@@ -46,7 +47,7 @@ class PhotoTile extends StatelessWidget {
               // 图片
               if (thumbnailPath != null)
                 Image.file(
-                  thumbnailPath as dynamic,
+                  File(thumbnailPath!),
                   fit: BoxFit.cover,
                 )
               else

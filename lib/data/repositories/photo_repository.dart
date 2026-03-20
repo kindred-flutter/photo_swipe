@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import '../models/photo_model.dart';
-import 'local_database.dart';
+import '../datasources/local_database.dart';
 
 class PhotoRepository {
   final LocalDatabase _db = LocalDatabase.instance;
@@ -20,7 +20,19 @@ class PhotoRepository {
 
   Future<void> addPhoto(PhotoModel photo) async {
     final database = await _db.database;
-    await database.insert('photos', photo.toMap());
+    // 用 IGNORE 冲突策略，asset_id 重复时跳过
+    await database.insert(
+      'photos',
+      photo.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// 获取所有已存储的 assetId 集合，用于去重
+  Future<Set<String>> getAllAssetIds() async {
+    final database = await _db.database;
+    final result = await database.query('photos', columns: ['asset_id']);
+    return result.map((row) => row['asset_id'] as String).toSet();
   }
 
   Future<void> deletePhoto(String id) async {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
-import '../../../core/constants/app_strings.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_spacing.dart';
+import '../../../../core/constants/app_strings.dart';
 
 class StatsBanner extends StatelessWidget {
   final int totalPhotos;
@@ -18,7 +18,7 @@ class StatsBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       height: AppSpacing.statsBannerHeight,
       color: isDark ? AppColors.surfaceDark : AppColors.statsBanner,
@@ -29,19 +29,19 @@ class StatsBanner extends StatelessWidget {
           _StatItem(
             icon: '📷',
             label: AppStrings.statsTotal,
-            value: '$totalPhotos',
+            value: '\$totalPhotos',
             unit: AppStrings.statsUnit,
           ),
           _StatItem(
             icon: '🗑',
             label: AppStrings.statsTrash,
-            value: '$trashedPhotos',
+            value: '\$trashedPhotos',
             unit: AppStrings.statsUnit,
           ),
           _StatItem(
             icon: '💾',
             label: AppStrings.statsSaved,
-            value: '$savedMB',
+            value: '\$savedMB',
             unit: AppStrings.statsMB,
           ),
         ],
