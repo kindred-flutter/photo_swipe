@@ -8,6 +8,7 @@ class PhotoProvider extends ChangeNotifier {
   List<PhotoModel> _photos = [];
   final Set<String> _loadedIds = <String>{};
   bool _isLoading = false;
+  bool _isLoadingMore = false;
   bool _hasMore = true;
   String? _error;
   int _totalCount = 0;
@@ -15,6 +16,7 @@ class PhotoProvider extends ChangeNotifier {
 
   List<PhotoModel> get photos => _photos;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
   String? get error => _error;
   int get totalCount => _totalCount;
@@ -40,9 +42,9 @@ class PhotoProvider extends ChangeNotifier {
   }
 
   Future<void> loadMore() async {
-    if (_isLoading || !_hasMore) return;
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
 
-    _isLoading = true;
+    _isLoadingMore = true;
     notifyListeners();
 
     try {
@@ -60,7 +62,7 @@ class PhotoProvider extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
     } finally {
-      _isLoading = false;
+      _isLoadingMore = false;
       notifyListeners();
     }
   }
@@ -96,6 +98,24 @@ class PhotoProvider extends ChangeNotifier {
         _totalCount--;
       }
       notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> deletePhotosByAssetIds(List<String> assetIds) async {
+    try {
+      await _repository.deletePhotosByAssetIds(assetIds);
+      if (assetIds.isNotEmpty) {
+        _photos.removeWhere((p) => assetIds.contains(p.assetId));
+        _loadedIds
+          ..clear()
+          ..addAll(_photos.map((p) => p.id));
+        _totalCount = await _repository.getTotalCount();
+        _hasMore = _photos.length >= _pageSize;
+        notifyListeners();
+      }
     } catch (e) {
       _error = e.toString();
       notifyListeners();

@@ -82,8 +82,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // 直接在主线程执行（photo_manager 不支持后台 Isolate）
       final existingAssetIds = await photoProvider.getAllAssetIds();
+      final staleAssetIds = await _findStaleAssetIds(existingAssetIds);
       final mediaTypeBackfill = await _backfillExistingMediaTypes(existingAssetIds);
       final newPhotoMaps = await _fetchNewPhotosMainThread(existingAssetIds);
+
+      if (staleAssetIds.isNotEmpty) {
+        await photoProvider.deletePhotosByAssetIds(staleAssetIds);
+      }
 
       if (mediaTypeBackfill.isNotEmpty) {
         await photoProvider.updateMediaTypesBatch(mediaTypeBackfill);
@@ -115,6 +120,19 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _isSyncing = false);
       }
     }
+  }
+
+  Future<List<String>> _findStaleAssetIds(Set<String> existingAssetIds) async {
+    if (existingAssetIds.isEmpty) return [];
+
+    final staleAssetIds = <String>[];
+    for (final assetId in existingAssetIds) {
+      final asset = await AssetEntity.fromId(assetId);
+      if (asset == null) {
+        staleAssetIds.add(assetId);
+      }
+    }
+    return staleAssetIds;
   }
 
   Future<Map<String, String>> _backfillExistingMediaTypes(Set<String> existingAssetIds) async {
@@ -390,7 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPhotoGrid() {
     return Consumer<PhotoProvider>(
       builder: (context, photoProvider, _) {
-        if (photoProvider.isLoading) {
+        if (photoProvider.isLoading && photoProvider.photos.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
         if (photoProvider.photos.isEmpty) {
@@ -413,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSpacing: AppSpacing.gridSpacing,
               crossAxisSpacing: AppSpacing.gridSpacing,
             ),
-            itemCount: photoProvider.photos.length + (photoProvider.hasMore ? 1 : 0),
+            itemCount: photoProvider.photos.length + (photoProvider.isLoadingMore ? 1 : 0),
             itemBuilder: (context, index) {
               if (index >= photoProvider.photos.length) {
                 return const Center(

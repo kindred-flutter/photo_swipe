@@ -46,8 +46,17 @@ class PhotoRepository {
     return result.map((row) => row['asset_id'] as String).toSet();
   }
 
-  Future<void> deletePhoto(String id) async {
+  Future<void> deletePhotosByAssetIds(List<String> assetIds) async {
+    if (assetIds.isEmpty) return;
     final database = await _db.database;
+    await database.delete(
+      'photos',
+      where: 'asset_id IN (${List.filled(assetIds.length, '?').join(',')})',
+      whereArgs: assetIds,
+    );
+  }
+
+  Future<void> deletePhoto(String id) async {    final database = await _db.database;
     await database.delete('photos', where: 'id = ?', whereArgs: [id]);
   }
 
