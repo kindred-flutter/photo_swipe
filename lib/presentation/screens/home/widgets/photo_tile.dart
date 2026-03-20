@@ -287,7 +287,7 @@ class _PhotoTileState extends State<PhotoTile>
                                     ),
                                     const SizedBox(width: 2),
                                     Text(
-                                      widget.mediaType == 'live' ? '实况' : '动态',
+                                      widget.mediaType == 'live' ? '动图' : '视频',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 11,

@@ -6,10 +6,16 @@ class PhotoRepository {
   final LocalDatabase _db = LocalDatabase.instance;
 
   /// 获取照片（支持分页）
-  Future<List<PhotoModel>> getPhotos({int limit = 50, int offset = 0}) async {
+  Future<List<PhotoModel>> getPhotos({
+    int limit = 50,
+    int offset = 0,
+    String? mediaType,
+  }) async {
     final database = await _db.database;
     final maps = await database.query(
       'photos',
+      where: mediaType != null && mediaType != 'all' ? 'media_type = ?' : null,
+      whereArgs: mediaType != null && mediaType != 'all' ? [mediaType] : null,
       orderBy: 'added_at DESC',
       limit: limit,
       offset: offset,
@@ -18,8 +24,8 @@ class PhotoRepository {
   }
 
   /// 获取所有照片（用于兼容旧代码）
-  Future<List<PhotoModel>> getAllPhotos() async {
-    return await getPhotos(limit: 100000, offset: 0);
+  Future<List<PhotoModel>> getAllPhotos({String? mediaType}) async {
+    return await getPhotos(limit: 100000, offset: 0, mediaType: mediaType);
   }
 
   Future<PhotoModel?> getPhotoById(String id) async {
@@ -56,13 +62,19 @@ class PhotoRepository {
     );
   }
 
-  Future<void> deletePhoto(String id) async {    final database = await _db.database;
+  Future<void> deletePhoto(String id) async {
+    final database = await _db.database;
     await database.delete('photos', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> getTotalCount() async {
+  Future<int> getTotalCount({String? mediaType}) async {
     final database = await _db.database;
-    final result = await database.rawQuery('SELECT COUNT(*) as count FROM photos');
+    final result = await database.rawQuery(
+      mediaType != null && mediaType != 'all'
+          ? 'SELECT COUNT(*) as count FROM photos WHERE media_type = ?'
+          : 'SELECT COUNT(*) as count FROM photos',
+      mediaType != null && mediaType != 'all' ? [mediaType] : null,
+    );
     return (result.first['count'] as int?) ?? 0;
   }
 

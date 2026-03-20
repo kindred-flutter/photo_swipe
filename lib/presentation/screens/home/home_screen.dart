@@ -28,6 +28,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   bool _isSyncing = false;
+  String _mediaFilter = 'all';
   static const _uuid = Uuid();
   final ScrollController _scrollController = ScrollController();
 
@@ -36,6 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadInitialData();
     _scrollController.addListener(_onScroll);
+  }
+
+  void _scrollToTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -69,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadPhotosFromGallery() async {
     final photoProvider = context.read<PhotoProvider>();
-    await photoProvider.loadPhotos();
+    await photoProvider.loadPhotos(mediaType: _mediaFilter);
     // 无论数据库是否为空，都执行同步（只导入新增的）
     await _syncFromGallery();
   }
@@ -98,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await photoProvider.addPhotosBatch(newPhotoMaps);
       }
 
-      await photoProvider.loadPhotos();
+      await photoProvider.loadPhotos(mediaType: _mediaFilter);
 
       if (mounted && newPhotoMaps.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -219,6 +229,47 @@ class _HomeScreenState extends State<HomeScreen> {
       if (liveFlag == true) return 'live';
     } catch (_) {}
     return asset.type.name;
+  }
+
+  Widget _buildFilterBar() {
+    const filters = [
+      ('all', '全部'),
+      ('video', '视频'),
+      ('live', '动图'),
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Row(
+        children: filters.map((item) {
+          final selected = _mediaFilter == item.$1;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              selected: selected,
+              label: Text(item.$2),
+              onSelected: (_) async {
+                setState(() => _mediaFilter = item.$1);
+                _scrollToTop();
+                await context.read<PhotoProvider>().loadPhotos(mediaType: item.$1);
+              },
+              selectedColor: AppColors.primary.withValues(alpha: 0.18),
+              checkmarkColor: AppColors.primary,
+              side: BorderSide(
+                color: selected
+                    ? AppColors.primary.withValues(alpha: 0.45)
+                    : Colors.white.withValues(alpha: 0.08),
+              ),
+              labelStyle: TextStyle(
+                color: selected ? AppColors.primary : null,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   /// 刷新按钮：重新同步相册
@@ -353,21 +404,25 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Consumer<StatsProvider>(
-          builder: (context, stats, _) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(AppStrings.appName),
-              Text(
-                '照片 ${stats.totalPhotos} · 垃圾箱 ${stats.trashedPhotos}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-              ),
-            ],
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _scrollToTop,
+          child: Consumer<StatsProvider>(
+            builder: (context, stats, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(AppStrings.appName),
+                Text(
+                  '照片 ${stats.totalPhotos} · 垃圾箱 ${stats.trashedPhotos}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+              ],
+            ),
           ),
         ),
         elevation: 0,
@@ -412,56 +467,80 @@ class _HomeScreenState extends State<HomeScreen> {
           return const Center(child: CircularProgressIndicator());
         }
         if (photoProvider.photos.isEmpty) {
-          return EmptyState(
-            title: AppStrings.emptyPhotos,
-            subtitle: AppStrings.emptyPhotosHint,
-            onActionPressed: _requestPermissionAndLoad,
-            actionLabel: AppStrings.addFromGallery,
+          return Column(
+            children: [
+              _buildFilterBar(),
+              Expanded(
+                child: EmptyState(
+                  title: _mediaFilter == 'all'
+                      ? AppStrings.emptyPhotos
+                      : '没有匹配的照片',
+                  subtitle: _mediaFilter == 'all'
+                      ? AppStrings.emptyPhotosHint
+                      : '试试切换其他筛选条件',
+                  onActionPressed: _mediaFilter == 'all'
+                      ? _requestPermissionAndLoad
+                      : () async {
+                          setState(() => _mediaFilter = 'all');
+                          await context.read<PhotoProvider>().loadPhotos(mediaType: 'all');
+                        },
+                  actionLabel: _mediaFilter == 'all'
+                      ? AppStrings.addFromGallery
+                      : '查看全部',
+                ),
+              ),
+            ],
           );
         }
-        return RefreshIndicator(
-          onRefresh: _importFromGallery,
-          child: GridView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(AppSpacing.gridSpacing),
-            // 只预加载当前屏幕上下各一屏的内容，减少内存占用
-            cacheExtent: MediaQuery.of(context).size.height,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: _getCrossAxisCount(context),
-              mainAxisSpacing: AppSpacing.gridSpacing,
-              crossAxisSpacing: AppSpacing.gridSpacing,
-            ),
-            itemCount: photoProvider.photos.length + (photoProvider.isLoadingMore ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index >= photoProvider.photos.length) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(),
+        return Column(
+          children: [
+            _buildFilterBar(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _importFromGallery,
+                child: GridView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(AppSpacing.gridSpacing),
+                  cacheExtent: MediaQuery.of(context).size.height,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: _getCrossAxisCount(context),
+                    mainAxisSpacing: AppSpacing.gridSpacing,
+                    crossAxisSpacing: AppSpacing.gridSpacing,
                   ),
-                );
-              }
-              final photo = photoProvider.photos[index];
-              if (index + 12 < photoProvider.photos.length) {
-                preloadThumbnails(
-                  photoProvider.photos
-                      .skip(index)
-                      .take(12)
-                      .map((p) => p.assetId)
-                      .toList(),
-                );
-              }
-              return PhotoTile(
-                key: ValueKey(photo.id),
-                assetId: photo.assetId,
-                mediaType: photo.mediaType,
-                onTap: () => _viewPhoto(photo),
-                onDeleteHoldComplete: () async {
-                  await _moveToTrash(photo);
-                },
-              );
-            },
-          ),
+                  itemCount: photoProvider.photos.length + (photoProvider.isLoadingMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index >= photoProvider.photos.length) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
+                    final photo = photoProvider.photos[index];
+                    if (index + 12 < photoProvider.photos.length) {
+                      preloadThumbnails(
+                        photoProvider.photos
+                            .skip(index)
+                            .take(12)
+                            .map((p) => p.assetId)
+                            .toList(),
+                      );
+                    }
+                    return PhotoTile(
+                      key: ValueKey(photo.id),
+                      assetId: photo.assetId,
+                      mediaType: photo.mediaType,
+                      onTap: () => _viewPhoto(photo),
+                      onDeleteHoldComplete: () async {
+                        await _moveToTrash(photo);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -662,18 +741,6 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text(AppStrings.cancel),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await trashProvider.emptyTrash(moveToSystemTrash: false);
-              if (!mounted) return;
-              messenger.showSnackBar(
-                const SnackBar(content: Text('已永久删除')),
-              );
-            },
-            child: const Text(AppStrings.trashDeleteDirectly),
           ),
           TextButton(
             onPressed: () async {

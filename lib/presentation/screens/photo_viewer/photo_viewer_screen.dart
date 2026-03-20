@@ -528,8 +528,8 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                   ),
                   child: Text(
                     photo.mediaType == 'live'
-                        ? (controller.value.isPlaying ? '点击暂停实况照片' : '点击播放实况照片')
-                        : (controller.value.isPlaying ? '点击暂停动态照片' : '点击播放动态照片'),
+                        ? (controller.value.isPlaying ? '点击暂停动图' : '点击播放动图')
+                        : (controller.value.isPlaying ? '点击暂停视频' : '点击播放视频'),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,

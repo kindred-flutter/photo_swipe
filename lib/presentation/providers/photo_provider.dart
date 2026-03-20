@@ -12,6 +12,7 @@ class PhotoProvider extends ChangeNotifier {
   bool _hasMore = true;
   String? _error;
   int _totalCount = 0;
+  String _mediaFilter = 'all';
   static const int _pageSize = 50;
 
   List<PhotoModel> get photos => _photos;
@@ -20,18 +21,26 @@ class PhotoProvider extends ChangeNotifier {
   bool get hasMore => _hasMore;
   String? get error => _error;
   int get totalCount => _totalCount;
+  String get mediaFilter => _mediaFilter;
 
-  Future<void> loadPhotos() async {
+  Future<void> loadPhotos({String? mediaType}) async {
+    if (mediaType != null) {
+      _mediaFilter = mediaType;
+    }
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      _photos = await _repository.getPhotos(limit: _pageSize, offset: 0);
+      _photos = await _repository.getPhotos(
+        limit: _pageSize,
+        offset: 0,
+        mediaType: _mediaFilter,
+      );
       _loadedIds
         ..clear()
         ..addAll(_photos.map((p) => p.id));
-      _totalCount = await _repository.getTotalCount();
+      _totalCount = await _repository.getTotalCount(mediaType: _mediaFilter);
       _hasMore = _photos.length >= _pageSize;
     } catch (e) {
       _error = e.toString();
@@ -51,6 +60,7 @@ class PhotoProvider extends ChangeNotifier {
       final morePhotos = await _repository.getPhotos(
         limit: _pageSize,
         offset: _photos.length,
+        mediaType: _mediaFilter,
       );
       if (morePhotos.isEmpty) {
         _hasMore = false;
@@ -77,7 +87,7 @@ class PhotoProvider extends ChangeNotifier {
       if (inserted) {
         _totalCount++;
       } else {
-        _totalCount = await _repository.getTotalCount();
+        _totalCount = await _repository.getTotalCount(mediaType: _mediaFilter);
       }
       notifyListeners();
     } catch (e) {
@@ -112,7 +122,7 @@ class PhotoProvider extends ChangeNotifier {
         _loadedIds
           ..clear()
           ..addAll(_photos.map((p) => p.id));
-        _totalCount = await _repository.getTotalCount();
+        _totalCount = await _repository.getTotalCount(mediaType: _mediaFilter);
         _hasMore = _photos.length >= _pageSize;
         notifyListeners();
       }
@@ -144,7 +154,7 @@ class PhotoProvider extends ChangeNotifier {
         _loadedIds
           ..clear()
           ..addAll(_photos.map((p) => p.id));
-        _totalCount = await _repository.getTotalCount();
+        _totalCount = await _repository.getTotalCount(mediaType: _mediaFilter);
         _hasMore = _photos.length >= _pageSize;
         notifyListeners();
       }
