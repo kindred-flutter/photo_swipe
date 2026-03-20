@@ -1,0 +1,73 @@
+import 'package:flutter/material.dart';
+import '../../data/models/trash_item_model.dart';
+import '../../data/repositories/trash_repository.dart';
+
+class TrashProvider extends ChangeNotifier {
+  final TrashRepository _repository = TrashRepository();
+
+  List<TrashItemModel> _items = [];
+  bool _isLoading = false;
+
+  List<TrashItemModel> get items => _items;
+  bool get isLoading => _isLoading;
+
+  Future<void> loadTrashItems() async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _items = await _repository.getAllTrashItems();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> addToTrash(TrashItemModel item) async {
+    try {
+      await _repository.addToTrash(item);
+      _items.insert(0, item);
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> restoreFromTrash(String id) async {
+    try {
+      await _repository.restoreFromTrash(id);
+      _items.removeWhere((item) => item.id == id);
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> permanentDelete(String id) async {
+    try {
+      await _repository.permanentDelete(id);
+      _items.removeWhere((item) => item.id == id);
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> emptyTrash() async {
+    try {
+      await _repository.emptyTrash();
+      _items.clear();
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<int> getTrashedCount() async {
+    return await _repository.getTrashedCount();
+  }
+
+  Future<int> getTrashedFileSize() async {
+    return await _repository.getTrashedFileSize();
+  }
+}
