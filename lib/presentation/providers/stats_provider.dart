@@ -44,7 +44,7 @@ class StatsProvider extends ChangeNotifier {
   void _updateFromProviders() {
     if (_photoProvider == null || _trashProvider == null) return;
 
-    final newTotal = _photoProvider!.photos.length;
+    final newTotal = _photoProvider!.totalCount;
     final newTrashed = _trashProvider!.items.length;
     final newSavedBytes = _trashProvider!.items
         .fold<int>(0, (sum, item) => sum + item.photo.fileSize);

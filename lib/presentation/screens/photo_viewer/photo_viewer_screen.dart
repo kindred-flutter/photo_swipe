@@ -9,12 +9,13 @@ import 'package:provider/provider.dart';
 import '../../providers/trash_provider.dart';
 import '../../../data/models/photo_model.dart';
 import '../../../core/utils/date_utils.dart';
+import 'delete_photo_session.dart';
 import 'widgets/photo_info_panel.dart';
 
 class PhotoViewerScreen extends StatefulWidget {
   final List<PhotoModel> photos;
   final int initialIndex;
-  final Future<void> Function(PhotoModel)? onDelete;
+  final Future<DeletePhotoSession> Function(PhotoModel)? onDelete;
 
   const PhotoViewerScreen({
     super.key,
@@ -56,6 +57,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
   // 图片缓存
   final Map<String, Uint8List> _thumbCache = {};
   final Map<String, Uint8List> _photoCache = {};
+  final Map<String, int> _reloadVersions = {};
 
   static const double _triggerDistance = 110.0;
   static const double _triggerAngleMin = 20.0 * math.pi / 180;
@@ -114,14 +116,26 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
   Future<void> _preloadPhoto(int index) async {
     if (index < 0 || index >= _photos.length) return;
     final assetId = _photos[index].assetId;
-    if (_photoCache.containsKey(assetId)) return;
+
     try {
       final asset = await AssetEntity.fromId(assetId);
       if (asset == null) return;
-      final bytes = await asset.originBytes;
-      if (bytes != null) _photoCache[assetId] = bytes;
-      final thumb = await asset.thumbnailDataWithSize(const ThumbnailSize.square(400));
-      if (thumb != null) _thumbCache[assetId] = thumb;
+
+      if (!_thumbCache.containsKey(assetId)) {
+        final thumb = await asset.thumbnailDataWithSize(
+          const ThumbnailSize.square(400),
+        );
+        if (thumb != null) {
+          _thumbCache[assetId] = thumb;
+        }
+      }
+
+      if (!_photoCache.containsKey(assetId)) {
+        final bytes = await asset.originBytes;
+        if (bytes != null) {
+          _photoCache[assetId] = bytes;
+        }
+      }
     } catch (_) {}
   }
 
@@ -130,21 +144,57 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     try {
       final asset = await AssetEntity.fromId(assetId);
       if (asset == null) return null;
+
+      final thumb = await asset.thumbnailDataWithSize(
+        const ThumbnailSize.square(400),
+      );
+      if (thumb != null) {
+        _thumbCache[assetId] = thumb;
+      }
+
       final bytes = await asset.originBytes;
-      if (bytes != null) _photoCache[assetId] = bytes;
+      if (bytes != null) {
+        _photoCache[assetId] = bytes;
+      }
       return bytes;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<Uint8List?> _getThumb(String assetId) async {
-    if (_thumbCache.containsKey(assetId)) return _thumbCache[assetId];
-    try {
-      final asset = await AssetEntity.fromId(assetId);
-      if (asset == null) return null;
-      final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize.square(400));
-      if (bytes != null) _thumbCache[assetId] = bytes;
-      return bytes;
-    } catch (_) { return null; }
+  void _reloadCurrentPhoto() {
+    final assetId = _currentPhoto.assetId;
+    _photoCache.remove(assetId);
+    _thumbCache.remove(assetId);
+    _reloadVersions[assetId] = (_reloadVersions[assetId] ?? 0) + 1;
+    setState(() {});
+    _preloadPhoto(_currentIndex);
+  }
+
+  void _restoreDeletedPhoto({
+    required PhotoModel photo,
+    required int restoreIndex,
+  }) {
+    if (_photos.any((p) => p.id == photo.id)) return;
+
+    final safeIndex = restoreIndex.clamp(0, _photos.length);
+    if (_photos.isEmpty) {
+      setState(() {
+        _photos.insert(0, photo);
+        _currentIndex = 0;
+        _isDeleting = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _photos.insert(safeIndex, photo);
+      if (safeIndex <= _currentIndex) {
+        _currentIndex += 1;
+      }
+      _currentIndex = _currentIndex.clamp(0, _photos.length - 1);
+      _isDeleting = false;
+    });
   }
 
   bool _isDeleteGesture(Offset delta) {
@@ -225,7 +275,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     });
   }
 
-  void _triggerDelete() async {
+  Future<void> _triggerDelete() async {
     if (_isDeleting) return;
     _isDeleting = true;
     HapticFeedback.mediumImpact();
@@ -250,10 +300,20 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
     await Future.delayed(const Duration(milliseconds: 180));
 
     final photo = _currentPhoto;
+    final deletedIndex = _currentIndex;
     final total = _photos.length;
 
     if (total == 1) {
-      if (widget.onDelete != null) await widget.onDelete!(photo);
+      if (widget.onDelete != null) {
+        final session = await widget.onDelete!(photo);
+        VoidCallback? listener;
+        listener = () {
+          if (!mounted || !session.undone.value) return;
+          session.undone.removeListener(listener!);
+          _restoreDeletedPhoto(photo: photo, restoreIndex: deletedIndex);
+        };
+        session.undone.addListener(listener);
+      }
       if (mounted) Navigator.of(context).pop();
       return;
     }
@@ -277,8 +337,22 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
       }
     }
 
-    if (widget.onDelete != null) await widget.onDelete!(photo);
+    DeletePhotoSession? session;
+    if (widget.onDelete != null) {
+      session = await widget.onDelete!(photo);
+    }
     _photos.removeAt(_currentIndex);
+
+    if (session != null) {
+      final activeSession = session;
+      VoidCallback? listener;
+      listener = () {
+        if (!mounted || !activeSession.undone.value) return;
+        activeSession.undone.removeListener(listener!);
+        _restoreDeletedPhoto(photo: photo, restoreIndex: deletedIndex);
+      };
+      activeSession.undone.addListener(listener);
+    }
 
     if (mounted) {
       setState(() {
@@ -448,6 +522,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                 itemCount: _photos.length,
                 itemBuilder: (context, index) {
                   final photo = _photos[index];
+                  final reloadVersion = _reloadVersions[photo.assetId] ?? 0;
                   final isCurrentDragging = index == _currentIndex && _showDragCard.value;
                   return Opacity(
                     opacity: isCurrentDragging ? 0.18 : 1.0,
@@ -456,19 +531,109 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen>
                       maxScale: 4.0,
                       child: Center(
                         child: FutureBuilder<Uint8List?>(
+                          key: ValueKey('${photo.assetId}-$reloadVersion'),
                           future: _getPhotoData(photo.assetId),
                           builder: (context, snap) {
                             if (snap.hasData && snap.data != null) {
-                              return Image.memory(snap.data!,
-                                  fit: BoxFit.contain,
-                                  gaplessPlayback: true);
+                              return Image.memory(
+                                snap.data!,
+                                fit: BoxFit.contain,
+                                gaplessPlayback: true,
+                              );
                             }
-                            if (_thumbCache.containsKey(photo.assetId)) {
-                              return Image.memory(_thumbCache[photo.assetId]!,
-                                  fit: BoxFit.contain, gaplessPlayback: true);
+
+                            final cachedThumb = _thumbCache[photo.assetId];
+                            if (cachedThumb != null) {
+                              return Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Image.memory(
+                                    cachedThumb,
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
+                                  ),
+                                  if (snap.connectionState == ConnectionState.waiting)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.45),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white70,
+                                            ),
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            '正在加载原图',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              );
                             }
-                            return const CircularProgressIndicator(
-                                color: Colors.white54);
+
+                            if (snap.connectionState == ConnectionState.waiting) {
+                              return const CircularProgressIndicator(
+                                color: Colors.white54,
+                              );
+                            }
+
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.cloud_download_outlined,
+                                  color: Colors.white70,
+                                  size: 36,
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  '原图暂时不可用',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  '可能仍在从 iCloud 同步，稍后可重新加载',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                FilledButton.tonal(
+                                  onPressed: index == _currentIndex
+                                      ? () => _reloadCurrentPhoto()
+                                      : null,
+                                  style: FilledButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    backgroundColor: Colors.white.withValues(alpha: 0.18),
+                                  ),
+                                  child: const Text('重新加载'),
+                                ),
+                              ],
+                            );
                           },
                         ),
                       ),

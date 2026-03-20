@@ -7,7 +7,7 @@ import '../../../../core/constants/app_spacing.dart';
 
 /// 全局缩略图缓存 - 使用 LRU 策略
 class _ThumbnailCache {
-  static const int _maxSize = 200;
+  static const int _maxSize = 120;
   static final Map<String, Uint8List> _cache = {};
   static final List<String> _accessOrder = [];
 
@@ -138,8 +138,8 @@ class _PhotoTileState extends State<PhotoTile>
       }
       
       final data = await asset.thumbnailDataWithSize(
-        const ThumbnailSize.square(300),
-        quality: 80,
+        const ThumbnailSize.square(220),
+        quality: 72,
       );
       
       if (data != null) {
@@ -345,8 +345,8 @@ Future<void> preloadThumbnails(List<String> assetIds) async {
       final asset = await AssetEntity.fromId(assetId);
       if (asset == null) continue;
       final data = await asset.thumbnailDataWithSize(
-        const ThumbnailSize.square(300),
-        quality: 80,
+        const ThumbnailSize.square(220),
+        quality: 72,
       );
       if (data != null) {
         _ThumbnailCache.put(assetId, data);

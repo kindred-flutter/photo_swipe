@@ -6,6 +6,7 @@ class PhotoProvider extends ChangeNotifier {
   final PhotoRepository _repository = PhotoRepository();
 
   List<PhotoModel> _photos = [];
+  final Set<String> _loadedIds = <String>{};
   bool _isLoading = false;
   bool _hasMore = true;
   String? _error;
@@ -25,6 +26,9 @@ class PhotoProvider extends ChangeNotifier {
 
     try {
       _photos = await _repository.getPhotos(limit: _pageSize, offset: 0);
+      _loadedIds
+        ..clear()
+        ..addAll(_photos.map((p) => p.id));
       _totalCount = await _repository.getTotalCount();
       _hasMore = _photos.length >= _pageSize;
     } catch (e) {
@@ -49,7 +53,8 @@ class PhotoProvider extends ChangeNotifier {
       if (morePhotos.isEmpty) {
         _hasMore = false;
       } else {
-        _photos.addAll(morePhotos);
+        final uniquePhotos = morePhotos.where((p) => _loadedIds.add(p.id)).toList();
+        _photos.addAll(uniquePhotos);
         _hasMore = morePhotos.length >= _pageSize;
       }
     } catch (e) {
@@ -63,8 +68,15 @@ class PhotoProvider extends ChangeNotifier {
   Future<void> addPhoto(PhotoModel photo) async {
     try {
       await _repository.addPhoto(photo);
-      _photos.insert(0, photo);
-      _totalCount++;
+      final inserted = _loadedIds.add(photo.id);
+      if (inserted) {
+        _photos.insert(0, photo);
+      }
+      if (inserted) {
+        _totalCount++;
+      } else {
+        _totalCount = await _repository.getTotalCount();
+      }
       notifyListeners();
     } catch (e) {
       _error = e.toString();
@@ -75,8 +87,14 @@ class PhotoProvider extends ChangeNotifier {
   Future<void> deletePhoto(String id) async {
     try {
       await _repository.deletePhoto(id);
-      _photos.removeWhere((p) => p.id == id);
-      _totalCount--;
+      final index = _photos.indexWhere((p) => p.id == id);
+      if (index != -1) {
+        _photos.removeAt(index);
+      }
+      _loadedIds.remove(id);
+      if (_totalCount > 0) {
+        _totalCount--;
+      }
       notifyListeners();
     } catch (e) {
       _error = e.toString();
@@ -101,8 +119,10 @@ class PhotoProvider extends ChangeNotifier {
   Future<void> addPhotosBatch(List<Map<String, dynamic>> photoMaps) async {
     try {
       await _repository.addPhotosBatch(photoMaps);
-      // 重新加载第一页
       _photos = await _repository.getPhotos(limit: _pageSize, offset: 0);
+      _loadedIds
+        ..clear()
+        ..addAll(_photos.map((p) => p.id));
       _totalCount = await _repository.getTotalCount();
       _hasMore = _photos.length >= _pageSize;
       notifyListeners();

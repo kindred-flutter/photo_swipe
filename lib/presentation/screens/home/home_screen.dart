@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 import '../../../core/constants/app_colors.dart';
@@ -14,7 +14,7 @@ import '../../providers/trash_provider.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/glassmorphic_container.dart';
 import '../photo_viewer/photo_viewer_screen.dart';
-import 'widgets/stats_banner.dart';
+import '../photo_viewer/delete_photo_session.dart';
 import 'widgets/photo_tile.dart';
 import '../trash/widgets/trash_tile.dart';
 
@@ -53,7 +53,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadInitialData() async {
     await _requestPermissionAndLoad();
-    if (mounted) await context.read<StatsProvider>().loadStats();
+    if (!mounted) return;
+    await context.read<StatsProvider>().loadStats();
   }
 
   Future<void> _requestPermissionAndLoad() async {
@@ -157,17 +158,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showPermissionDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text(AppStrings.permissionTitle),
         content: const Text(AppStrings.permissionMessage),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text(AppStrings.cancel),
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               PhotoManager.openSetting();
             },
             child: const Text(AppStrings.goToSettings),
@@ -177,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _moveToTrash(PhotoModel photo) async {
+  Future<DeletePhotoSession> _moveToTrash(PhotoModel photo) async {
     final trashProvider = context.read<TrashProvider>();
     final photoProvider = context.read<PhotoProvider>();
 
@@ -188,9 +189,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // 再从主相册删除照片
     await photoProvider.deletePhoto(photo.id);
 
-    if (!mounted) return;
+    if (!mounted) {
+      return DeletePhotoSession(
+        undone: ValueNotifier<bool>(false),
+        trashItemId: trashItem.id,
+      );
+    }
     final messenger = ScaffoldMessenger.of(context);
     final countdown = ValueNotifier<int>(5);
+    final undoneNotifier = ValueNotifier<bool>(false);
     var undone = false;
     var snackbarClosed = false;
 
@@ -207,16 +214,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 ValueListenableBuilder<int>(
                   valueListenable: countdown,
-                  builder: (context, secondsLeft, _) {
+                  builder: (_, secondsLeft, __) {
                     return TextButton(
                       onPressed: () async {
                         if (undone || snackbarClosed) return;
                         undone = true;
+                        undoneNotifier.value = true;
                         await photoProvider.addPhoto(photo);
                         await trashProvider.restoreFromTrash(trashItem.id);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        }
+                        messenger.hideCurrentSnackBar();
                       },
                       style: TextButton.styleFrom(
                         foregroundColor: const Color(0xFF7AB6FF),
@@ -243,6 +249,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || undone || snackbarClosed) break;
       countdown.value = i;
     }
+
+    return DeletePhotoSession(
+      undone: undoneNotifier,
+      trashItemId: trashItem.id,
+    );
   }
 
   void _viewPhoto(PhotoModel photo) {
@@ -267,66 +278,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppSpacing.gridCrossAxisCount;
   }
 
-  void _showTrashItemOptions(BuildContext context, TrashItemModel item) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.restore, color: AppColors.primary),
-              title: const Text(AppStrings.restore),
-              onTap: () async {
-                Navigator.pop(context);
-                await context.read<TrashProvider>().restoreFromTrash(item.id);
-                await context.read<PhotoProvider>().addPhoto(item.photo);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text(AppStrings.restoredToAlbum)),
-                  );
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_forever, color: AppColors.error),
-              title: const Text(AppStrings.permanentDelete),
-              onTap: () {
-                Navigator.pop(context);
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text(AppStrings.permanentDelete),
-                    content: const Text(AppStrings.permanentDeleteConfirm),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text(AppStrings.cancel),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                        onPressed: () async {
-                          Navigator.pop(context);
-                          await context.read<TrashProvider>().permanentDelete(item.id);
-                        },
-                        child: const Text(AppStrings.delete),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(AppStrings.appName),
+        title: Consumer<StatsProvider>(
+          builder: (context, stats, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(AppStrings.appName),
+              Text(
+                '照片 ${stats.totalPhotos} · 垃圾箱 ${stats.trashedPhotos}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+            ],
+          ),
+        ),
         elevation: 0,
         actions: [
           if (_selectedIndex == 0)
@@ -357,20 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          Consumer<StatsProvider>(
-            builder: (context, stats, _) => StatsBanner(
-              totalPhotos: stats.totalPhotos,
-              trashedPhotos: stats.trashedPhotos,
-              savedMB: stats.savedMB,
-            ),
-          ),
-          Expanded(
-            child: _selectedIndex == 0 ? _buildPhotoGrid() : _buildTrashGrid(),
-          ),
-        ],
-      ),
+      body: _selectedIndex == 0 ? _buildPhotoGrid() : _buildTrashGrid(),
       bottomNavigationBar: _buildGlassBottomNav(context),
     );
   }
@@ -412,11 +371,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
               final photo = photoProvider.photos[index];
+              if (index + 12 < photoProvider.photos.length) {
+                preloadThumbnails(
+                  photoProvider.photos
+                      .skip(index)
+                      .take(12)
+                      .map((p) => p.assetId)
+                      .toList(),
+                );
+              }
               return PhotoTile(
                 key: ValueKey(photo.id),
                 assetId: photo.assetId,
                 onTap: () => _viewPhoto(photo),
-                onDeleteHoldComplete: () => _moveToTrash(photo),
+                onDeleteHoldComplete: () async {
+                  await _moveToTrash(photo);
+                },
               );
             },
           ),
@@ -496,33 +466,35 @@ class _HomeScreenState extends State<HomeScreen> {
                 itemCount: trashProvider.items.length,
                 itemBuilder: (context, index) {
                   final item = trashProvider.items[index];
+                  final messenger = ScaffoldMessenger.of(context);
+                  final trashRepo = context.read<TrashProvider>();
+                  final photoRepo = context.read<PhotoProvider>();
                   return TrashTile(
                     item: item,
                     onRestore: () async {
-                      await context.read<TrashProvider>().restoreFromTrash(item.id);
-                      await context.read<PhotoProvider>().addPhoto(item.photo);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text(AppStrings.restoredToAlbum)),
-                        );
-                      }
+                      await trashRepo.restoreFromTrash(item.id);
+                      await photoRepo.addPhoto(item.photo);
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text(AppStrings.restoredToAlbum)),
+                      );
                     },
                     onDelete: () {
                       showDialog(
                         context: context,
-                        builder: (context) => AlertDialog(
+                        builder: (dialogContext) => AlertDialog(
                           title: const Text(AppStrings.permanentDelete),
                           content: const Text(AppStrings.permanentDeleteConfirm),
                           actions: [
                             TextButton(
-                              onPressed: () => Navigator.pop(context),
+                              onPressed: () => Navigator.pop(dialogContext),
                               child: const Text(AppStrings.cancel),
                             ),
                             TextButton(
                               style: TextButton.styleFrom(foregroundColor: AppColors.error),
                               onPressed: () async {
-                                Navigator.pop(context);
-                                await context.read<TrashProvider>().permanentDelete(item.id);
+                                Navigator.pop(dialogContext);
+                                await trashRepo.permanentDelete(item.id);
                               },
                               child: const Text(AppStrings.delete),
                             ),
@@ -606,38 +578,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showClearTrashDialog(BuildContext context) {
+    final messenger = ScaffoldMessenger.of(context);
+    final trashProvider = context.read<TrashProvider>();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text(AppStrings.trashClear),
         content: const Text(AppStrings.trashClearConfirm),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text(AppStrings.cancel),
           ),
           TextButton(
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
             onPressed: () async {
-              Navigator.pop(context);
-              await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: false);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已永久删除')),
-                );
-              }
+              Navigator.pop(dialogContext);
+              await trashProvider.emptyTrash(moveToSystemTrash: false);
+              if (!mounted) return;
+              messenger.showSnackBar(
+                const SnackBar(content: Text('已永久删除')),
+              );
             },
             child: const Text(AppStrings.trashDeleteDirectly),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
-              await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: true);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已移入系统垃圾箱')),
-                );
-              }
+              Navigator.pop(dialogContext);
+              await trashProvider.emptyTrash(moveToSystemTrash: true);
+              if (!mounted) return;
+              messenger.showSnackBar(
+                const SnackBar(content: Text('已移入系统垃圾箱')),
+              );
             },
             child: const Text(AppStrings.trashClearConfirmBtn),
           ),
