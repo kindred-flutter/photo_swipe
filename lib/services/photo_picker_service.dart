@@ -20,7 +20,7 @@ class PhotoPickerService {
           assetId: asset.id,
           localPath: file.path,
           thumbnailPath: null,
-          addedAt: asset.createDateTime ?? DateTime.now(),
+          addedAt: asset.createDateTime,
           takenAt: asset.createDateTime,
           width: asset.width,
           height: asset.height,

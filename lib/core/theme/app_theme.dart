@@ -12,7 +12,6 @@ class AppTheme {
         primaryContainer: AppColors.primaryContainer,
         secondary: AppColors.secondary,
         secondaryContainer: AppColors.secondaryContainer,
-        background: AppColors.background,
         surface: AppColors.surface,
         error: AppColors.error,
       ),
@@ -85,7 +84,6 @@ class AppTheme {
       colorScheme: const ColorScheme.dark(
         primary: AppColors.primaryDark,
         secondary: AppColors.secondaryDark,
-        background: AppColors.backgroundDark,
         surface: AppColors.surfaceDark,
         error: AppColors.errorDark,
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -205,8 +206,8 @@ class _HomeScreenState extends State<HomeScreen> {
           newPhotos.add({
             'id': _uuid.v4(),
             'assetId': asset.id,
-            'addedAt': (asset.createDateTime ?? DateTime.now()).millisecondsSinceEpoch,
-            'takenAt': asset.createDateTime?.millisecondsSinceEpoch,
+            'addedAt': asset.createDateTime.millisecondsSinceEpoch,
+            'takenAt': asset.createDateTime.millisecondsSinceEpoch,
             'width': asset.width,
             'height': asset.height,
             'mediaType': mediaType,
@@ -501,7 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: GridView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.all(AppSpacing.gridSpacing),
-                  cacheExtent: MediaQuery.of(context).size.height,
+                  scrollCacheExtent: ScrollCacheExtent.pixels(MediaQuery.of(context).size.height),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: _getCrossAxisCount(context),
                     mainAxisSpacing: AppSpacing.gridSpacing,

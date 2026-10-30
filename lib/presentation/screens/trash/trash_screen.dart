@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_strings.dart';
-import '../../../core/utils/date_utils.dart';
 import '../../providers/trash_provider.dart';
 import '../../providers/stats_provider.dart';
 import '../../widgets/common/empty_state.dart';
@@ -79,8 +78,8 @@ class _TrashScreenState extends State<TrashScreen> {
                     final item = trashProvider.items[index];
                     return TrashTile(
                       item: item,
-                      onRestore: () => _restoreItem(context, item),
-                      onDelete: () => _deleteItem(context, item),
+                      onRestore: () => _restoreItem(item),
+                      onDelete: () => _deleteItem(item),
                     );
                   },
                 ),
@@ -107,14 +106,14 @@ class _TrashScreenState extends State<TrashScreen> {
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
             onPressed: () {
               Navigator.pop(context);
-              _clearTrash(context, moveToSystemTrash: false);
+              _clearTrash(moveToSystemTrash: false);
             },
             child: const Text(AppStrings.trashDeleteDirectly),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _clearTrash(context, moveToSystemTrash: true);
+              _clearTrash(moveToSystemTrash: true);
             },
             child: const Text(AppStrings.trashClearConfirmBtn),
           ),
@@ -123,43 +122,33 @@ class _TrashScreenState extends State<TrashScreen> {
     );
   }
 
-  Future<void> _clearTrash(BuildContext context, {required bool moveToSystemTrash}) async {
+  Future<void> _clearTrash({required bool moveToSystemTrash}) async {
+    final trashProvider = context.read<TrashProvider>();
+    final statsProvider = context.read<StatsProvider>();
     try {
-      await context.read<TrashProvider>().emptyTrash(moveToSystemTrash: moveToSystemTrash);
-      await context.read<StatsProvider>().loadStats();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(moveToSystemTrash ? '已移入系统垃圾箱' : '已永久删除')),
-        );
-      }
+      await trashProvider.emptyTrash(moveToSystemTrash: moveToSystemTrash);
+      await statsProvider.loadStats();
+      _showSnackBar(moveToSystemTrash ? '已移入系统垃圾箱' : '已永久删除');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('清空失败: $e')),
-        );
-      }
+      _showSnackBar('清空失败: $e');
     }
   }
 
-  Future<void> _restoreItem(BuildContext context, dynamic item) async {
+  Future<void> _restoreItem(dynamic item) async {
+    final trashProvider = context.read<TrashProvider>();
+    final statsProvider = context.read<StatsProvider>();
     try {
-      await context.read<TrashProvider>().restoreFromTrash(item.id);
-      await context.read<StatsProvider>().loadStats();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(AppStrings.restoredToAlbum)),
-        );
-      }
+      await trashProvider.restoreFromTrash(item.id);
+      await statsProvider.loadStats();
+      _showSnackBar(AppStrings.restoredToAlbum);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('恢复失败: $e')),
-        );
-      }
+      _showSnackBar('恢复失败: $e');
     }
   }
 
-  Future<void> _deleteItem(BuildContext context, dynamic item) async {
+  Future<void> _deleteItem(dynamic item) async {
+    final trashProvider = context.read<TrashProvider>();
+    final statsProvider = context.read<StatsProvider>();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -174,19 +163,11 @@ class _TrashScreenState extends State<TrashScreen> {
             onPressed: () async {
               Navigator.pop(context);
               try {
-                await context.read<TrashProvider>().permanentDelete(item.id);
-                await context.read<StatsProvider>().loadStats();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已永久删除')),
-                  );
-                }
+                await trashProvider.permanentDelete(item.id);
+                await statsProvider.loadStats();
+                _showSnackBar('已永久删除');
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('删除失败: $e')),
-                  );
-                }
+                _showSnackBar('删除失败: $e');
               }
             },
             child: const Text(AppStrings.delete),
@@ -194,5 +175,10 @@ class _TrashScreenState extends State<TrashScreen> {
         ],
       ),
     );
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 }

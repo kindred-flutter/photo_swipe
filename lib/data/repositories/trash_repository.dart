@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:sqflite/sqflite.dart';
 import '../models/trash_item_model.dart';
 import '../models/photo_model.dart';
 import '../datasources/local_database.dart';
